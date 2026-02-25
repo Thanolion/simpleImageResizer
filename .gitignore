@@ -1,0 +1,49 @@
+# Build output
+/out/
+
+# IDE / editor
+/.vs/
+/.vscode/
+/.idea/
+*.user
+*.suo
+*.db
+*.sqlite
+*.opendb
+
+# CMake
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+/build/
+
+# Ninja
+.ninja_log
+.ninja_deps
+
+# clangd / IDE tooling
+compile_commands.json
+.cache/
+
+# Compiled artifacts
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.pdb
+*.exp
+*.ilk
+
+# Claude Code workspace
+/.claude/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Local build config
+build.env
+
+# Logs
+*.log

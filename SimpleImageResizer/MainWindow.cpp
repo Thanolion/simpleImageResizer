@@ -1,0 +1,667 @@
+#include "MainWindow.h"
+#include "ImageProcessor.h"
+#include "SettingsManager.h"
+
+#include <QApplication>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGroupBox>
+#include <QFormLayout>
+#include <QClipboard>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QHeaderView>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QCloseEvent>
+#include <QtConcurrent>
+#include <QDir>
+#include <QFileInfo>
+#include <QDirIterator>
+#include <QImageReader>
+
+static const QStringList IMAGE_FILTERS = {
+    "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.tiff", "*.tif", "*.webp",
+    "*.cr2", "*.cr3", "*.nef", "*.nrw", "*.arw", "*.dng", "*.raf", "*.orf", "*.rw2", "*.pef", "*.srw",
+    "*.svg", "*.svgz"
+};
+
+static QString buildDialogFilter() {
+    return "Images (" + IMAGE_FILTERS.join(' ') + ");;All Files (*)";
+}
+
+static QStringList bareExtensions() {
+    QStringList exts;
+    for (const QString &f : IMAGE_FILTERS) exts << f.mid(2); // "*.png" -> "png"
+    return exts;
+}
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+{
+    setWindowTitle("Simple Image Resizer");
+    resize(1000, 700);
+    setAcceptDrops(true);
+
+    setupMenuBar();
+    setupUI();
+    loadSettings();
+}
+
+MainWindow::~MainWindow()
+{
+    if (m_watcher && m_watcher->isRunning()) {
+        m_watcher->cancel();
+        m_watcher->waitForFinished();
+    }
+}
+
+void MainWindow::setupMenuBar()
+{
+    auto *fileMenu = menuBar()->addMenu("&File");
+    auto *exitAction = fileMenu->addAction("E&xit");
+    connect(exitAction, &QAction::triggered, this, &QWidget::close);
+
+    auto *helpMenu = menuBar()->addMenu("&Help");
+    auto *aboutAction = helpMenu->addAction("&About");
+    connect(aboutAction, &QAction::triggered, this, &MainWindow::onAbout);
+
+    auto *donateAction = helpMenu->addAction("Support &Development");
+    connect(donateAction, &QAction::triggered, this, &MainWindow::onDonate);
+}
+
+void MainWindow::setupUI()
+{
+    auto *splitter = new QSplitter(Qt::Horizontal, this);
+    setCentralWidget(splitter);
+
+    // ── Left panel: Input + Settings ──
+    auto *leftWidget = new QWidget;
+    auto *leftLayout = new QVBoxLayout(leftWidget);
+
+    // Input file management
+    auto *inputGroup = new QGroupBox("Input Files");
+    auto *inputLayout = new QVBoxLayout(inputGroup);
+
+    m_inputTable = new QTableWidget(0, 3);
+    m_inputTable->setHorizontalHeaderLabels({"File Name", "Size", "Dimensions"});
+    m_inputTable->horizontalHeader()->setStretchLastSection(true);
+    m_inputTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_inputTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    inputLayout->addWidget(m_inputTable);
+
+    auto *inputBtnLayout = new QHBoxLayout;
+    m_addFilesBtn = new QPushButton("Add Files...");
+    m_addFolderBtn = new QPushButton("Add Folder...");
+    m_removeSelectedBtn = new QPushButton("Remove Selected");
+    m_clearAllBtn = new QPushButton("Clear All");
+    inputBtnLayout->addWidget(m_addFilesBtn);
+    inputBtnLayout->addWidget(m_addFolderBtn);
+    inputBtnLayout->addWidget(m_removeSelectedBtn);
+    inputBtnLayout->addWidget(m_clearAllBtn);
+    inputLayout->addLayout(inputBtnLayout);
+    leftLayout->addWidget(inputGroup);
+
+    // Output settings
+    auto *outputGroup = new QGroupBox("Output Settings");
+    auto *outputLayout = new QVBoxLayout(outputGroup);
+
+    auto *outputDirLayout = new QHBoxLayout;
+    outputDirLayout->addWidget(new QLabel("Output Folder:"));
+    m_outputDirEdit = new QLineEdit;
+    outputDirLayout->addWidget(m_outputDirEdit);
+    m_browseOutputBtn = new QPushButton("Browse...");
+    outputDirLayout->addWidget(m_browseOutputBtn);
+    outputLayout->addLayout(outputDirLayout);
+
+    auto *fmtLayout = new QHBoxLayout;
+    fmtLayout->addWidget(new QLabel("Format:"));
+    m_fmtJpg = new QRadioButton("JPG");
+    m_fmtPng = new QRadioButton("PNG");
+    m_fmtWebp = new QRadioButton("WebP");
+    m_fmtJpg->setChecked(true);
+    m_fmtGroup = new QButtonGroup(this);
+    m_fmtGroup->addButton(m_fmtJpg, 0);
+    m_fmtGroup->addButton(m_fmtPng, 1);
+    m_fmtGroup->addButton(m_fmtWebp, 2);
+    fmtLayout->addWidget(m_fmtJpg);
+    fmtLayout->addWidget(m_fmtPng);
+    fmtLayout->addWidget(m_fmtWebp);
+    fmtLayout->addStretch();
+    outputLayout->addLayout(fmtLayout);
+    leftLayout->addWidget(outputGroup);
+
+    // Processing options
+    auto *optGroup = new QGroupBox("Processing Options");
+    auto *optLayout = new QVBoxLayout(optGroup);
+
+    auto *modeLayout = new QHBoxLayout;
+    modeLayout->addWidget(new QLabel("Resize Mode:"));
+    m_modePercent = new QRadioButton("Percentage");
+    m_modeFitWidth = new QRadioButton("Fit Width");
+    m_modeFitHeight = new QRadioButton("Fit Height");
+    m_modeFitBox = new QRadioButton("Fit Box");
+    m_modeNoResize = new QRadioButton("No Resize");
+    m_modePercent->setChecked(true);
+    m_modeGroup = new QButtonGroup(this);
+    m_modeGroup->addButton(m_modePercent, 0);
+    m_modeGroup->addButton(m_modeFitWidth, 1);
+    m_modeGroup->addButton(m_modeFitHeight, 2);
+    m_modeGroup->addButton(m_modeFitBox, 3);
+    m_modeGroup->addButton(m_modeNoResize, 4);
+    modeLayout->addWidget(m_modePercent);
+    modeLayout->addWidget(m_modeFitWidth);
+    modeLayout->addWidget(m_modeFitHeight);
+    modeLayout->addWidget(m_modeFitBox);
+    modeLayout->addWidget(m_modeNoResize);
+    optLayout->addLayout(modeLayout);
+
+    // Resize percentage slider
+    auto *resizeRow = new QHBoxLayout;
+    resizeRow->addWidget(new QLabel("Resize %:"));
+    m_resizeSlider = new QSlider(Qt::Horizontal);
+    m_resizeSlider->setRange(1, 200);
+    m_resizeSlider->setValue(100);
+    m_resizeLabel = new QLabel("100%");
+    m_resizeLabel->setMinimumWidth(45);
+    resizeRow->addWidget(m_resizeSlider);
+    resizeRow->addWidget(m_resizeLabel);
+    optLayout->addLayout(resizeRow);
+
+    // Dimension spinboxes
+    auto *dimRow = new QHBoxLayout;
+    dimRow->addWidget(new QLabel("Width:"));
+    m_widthSpin = new QSpinBox;
+    m_widthSpin->setRange(1, 99999);
+    m_widthSpin->setValue(1920);
+    dimRow->addWidget(m_widthSpin);
+    dimRow->addWidget(new QLabel("Height:"));
+    m_heightSpin = new QSpinBox;
+    m_heightSpin->setRange(1, 99999);
+    m_heightSpin->setValue(1080);
+    dimRow->addWidget(m_heightSpin);
+    optLayout->addLayout(dimRow);
+
+    // Quality slider
+    auto *qualRow = new QHBoxLayout;
+    qualRow->addWidget(new QLabel("Quality:"));
+    m_qualitySlider = new QSlider(Qt::Horizontal);
+    m_qualitySlider->setRange(1, 100);
+    m_qualitySlider->setValue(85);
+    m_qualityLabel = new QLabel("85");
+    m_qualityLabel->setMinimumWidth(30);
+    qualRow->addWidget(m_qualitySlider);
+    qualRow->addWidget(m_qualityLabel);
+    optLayout->addLayout(qualRow);
+
+    // Target file size
+    auto *targetRow = new QHBoxLayout;
+    m_targetSizeCheck = new QCheckBox("Target file size (KB):");
+    m_targetSizeSpin = new QSpinBox;
+    m_targetSizeSpin->setRange(1, 999999);
+    m_targetSizeSpin->setValue(500);
+    m_targetSizeSpin->setEnabled(false);
+    targetRow->addWidget(m_targetSizeCheck);
+    targetRow->addWidget(m_targetSizeSpin);
+    targetRow->addStretch();
+    optLayout->addLayout(targetRow);
+
+    leftLayout->addWidget(optGroup);
+
+    // Process controls
+    auto *processLayout = new QHBoxLayout;
+    m_processBtn = new QPushButton("Process");
+    m_cancelBtn = new QPushButton("Cancel");
+    m_cancelBtn->setEnabled(false);
+    processLayout->addWidget(m_processBtn);
+    processLayout->addWidget(m_cancelBtn);
+    leftLayout->addLayout(processLayout);
+
+    m_progressBar = new QProgressBar;
+    m_progressBar->setValue(0);
+    leftLayout->addWidget(m_progressBar);
+
+    m_statusLabel = new QLabel("Ready");
+    leftLayout->addWidget(m_statusLabel);
+
+    // ── Right panel: Results ──
+    auto *rightWidget = new QWidget;
+    auto *rightLayout = new QVBoxLayout(rightWidget);
+
+    auto *resultsGroup = new QGroupBox("Results");
+    auto *resultsLayout = new QVBoxLayout(resultsGroup);
+
+    m_resultsTable = new QTableWidget(0, 5);
+    m_resultsTable->setHorizontalHeaderLabels({
+        "File Name", "Original Size", "New Size", "Reduction %", "Status"
+    });
+    m_resultsTable->horizontalHeader()->setStretchLastSection(true);
+    m_resultsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_resultsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    resultsLayout->addWidget(m_resultsTable);
+
+    auto *resultsBtnLayout = new QHBoxLayout;
+    m_copyResultsBtn = new QPushButton("Copy to Clipboard");
+    m_openOutputBtn = new QPushButton("Open Output Folder");
+    resultsBtnLayout->addWidget(m_copyResultsBtn);
+    resultsBtnLayout->addWidget(m_openOutputBtn);
+    resultsBtnLayout->addStretch();
+    resultsLayout->addLayout(resultsBtnLayout);
+
+    rightLayout->addWidget(resultsGroup);
+
+    splitter->addWidget(leftWidget);
+    splitter->addWidget(rightWidget);
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 1);
+
+    // Connections
+    connect(m_addFilesBtn, &QPushButton::clicked, this, &MainWindow::onAddFiles);
+    connect(m_addFolderBtn, &QPushButton::clicked, this, &MainWindow::onAddFolder);
+    connect(m_removeSelectedBtn, &QPushButton::clicked, this, &MainWindow::onRemoveSelected);
+    connect(m_clearAllBtn, &QPushButton::clicked, this, &MainWindow::onClearAll);
+    connect(m_browseOutputBtn, &QPushButton::clicked, this, &MainWindow::onBrowseOutput);
+    connect(m_processBtn, &QPushButton::clicked, this, &MainWindow::onProcess);
+    connect(m_cancelBtn, &QPushButton::clicked, this, &MainWindow::onCancel);
+    connect(m_copyResultsBtn, &QPushButton::clicked, this, &MainWindow::onCopyResults);
+    connect(m_openOutputBtn, &QPushButton::clicked, this, &MainWindow::onOpenOutputFolder);
+
+    connect(m_resizeSlider, &QSlider::valueChanged, this, [this](int val) {
+        m_resizeLabel->setText(QString::number(val) + "%");
+    });
+    connect(m_qualitySlider, &QSlider::valueChanged, this, [this](int val) {
+        m_qualityLabel->setText(QString::number(val));
+    });
+    connect(m_targetSizeCheck, &QCheckBox::toggled, this, &MainWindow::onTargetSizeToggled);
+    connect(m_modeGroup, &QButtonGroup::idClicked, this, [this](int) {
+        onResizeModeChanged();
+    });
+
+    updateResizeControls();
+}
+
+void MainWindow::onAddFiles()
+{
+    QStringList files = QFileDialog::getOpenFileNames(
+        this, "Select Images", QString(), buildDialogFilter());
+    addImageFiles(files);
+}
+
+void MainWindow::onAddFolder()
+{
+    QString dir = QFileDialog::getExistingDirectory(this, "Select Folder");
+    if (dir.isEmpty()) return;
+
+    QStringList files;
+    QDirIterator it(dir, IMAGE_FILTERS, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        files << it.next();
+    }
+    addImageFiles(files);
+}
+
+void MainWindow::addImageFiles(const QStringList &paths)
+{
+    for (const QString &path : paths) {
+        // Avoid duplicates
+        bool exists = false;
+        for (int r = 0; r < m_inputTable->rowCount(); ++r) {
+            if (m_inputTable->item(r, 0)->data(Qt::UserRole).toString() == path) {
+                exists = true;
+                break;
+            }
+        }
+        if (exists) continue;
+
+        QFileInfo info(path);
+        QImageReader reader(path);
+        QSize imgSize = reader.size();
+
+        int row = m_inputTable->rowCount();
+        m_inputTable->insertRow(row);
+
+        auto *nameItem = new QTableWidgetItem(info.fileName());
+        nameItem->setData(Qt::UserRole, path);
+        m_inputTable->setItem(row, 0, nameItem);
+
+        QString sizeStr;
+        qint64 sz = info.size();
+        if (sz >= 1024 * 1024)
+            sizeStr = QString::number(sz / (1024.0 * 1024.0), 'f', 2) + " MB";
+        else
+            sizeStr = QString::number(sz / 1024.0, 'f', 1) + " KB";
+        m_inputTable->setItem(row, 1, new QTableWidgetItem(sizeStr));
+
+        QString dimStr = imgSize.isValid() ? QString("%1 x %2").arg(imgSize.width()).arg(imgSize.height()) : "?";
+        m_inputTable->setItem(row, 2, new QTableWidgetItem(dimStr));
+    }
+
+    m_statusLabel->setText(QString("%1 file(s) loaded").arg(m_inputTable->rowCount()));
+}
+
+void MainWindow::onRemoveSelected()
+{
+    auto ranges = m_inputTable->selectedRanges();
+    QList<int> rows;
+    for (const auto &range : ranges) {
+        for (int r = range.topRow(); r <= range.bottomRow(); ++r)
+            rows << r;
+    }
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    for (int r : rows)
+        m_inputTable->removeRow(r);
+}
+
+void MainWindow::onClearAll()
+{
+    m_inputTable->setRowCount(0);
+    m_statusLabel->setText("Ready");
+}
+
+void MainWindow::onBrowseOutput()
+{
+    QString dir = QFileDialog::getExistingDirectory(this, "Select Output Folder");
+    if (!dir.isEmpty())
+        m_outputDirEdit->setText(dir);
+}
+
+void MainWindow::onProcess()
+{
+    if (m_watcher) return;
+
+    if (m_inputTable->rowCount() == 0) {
+        QMessageBox::warning(this, "No Input", "Please add image files first.");
+        return;
+    }
+    QString outputDir = m_outputDirEdit->text();
+    m_usePerFileOutput = outputDir.isEmpty();
+
+    if (!m_usePerFileOutput) {
+        QDir().mkpath(outputDir);
+    }
+
+    // Build jobs
+    OutputFormat fmt = static_cast<OutputFormat>(m_fmtGroup->checkedId());
+    ResizeMode mode = static_cast<ResizeMode>(m_modeGroup->checkedId());
+
+    QList<ProcessingJob> jobs;
+    for (int r = 0; r < m_inputTable->rowCount(); ++r) {
+        ProcessingJob job;
+        job.inputPath = m_inputTable->item(r, 0)->data(Qt::UserRole).toString();
+        job.outputDir = m_usePerFileOutput
+            ? QFileInfo(job.inputPath).dir().filePath("resized")
+            : outputDir;
+        if (m_usePerFileOutput) {
+            QDir().mkpath(job.outputDir);
+        }
+        job.format = fmt;
+        job.resizeMode = mode;
+        job.resizePercent = m_resizeSlider->value();
+        job.resizeWidth = m_widthSpin->value();
+        job.resizeHeight = m_heightSpin->value();
+        job.quality = m_qualitySlider->value();
+        job.useTargetSize = m_targetSizeCheck->isChecked();
+        job.targetSizeKB = m_targetSizeSpin->value();
+        jobs << job;
+    }
+
+    m_resultsTable->setRowCount(0);
+    m_progressBar->setMaximum(jobs.size());
+    m_progressBar->setValue(0);
+    m_cancelled = false;
+    m_processBtn->setEnabled(false);
+    m_cancelBtn->setEnabled(true);
+    m_statusLabel->setText("Processing...");
+
+    m_watcher = new QFutureWatcher<ProcessingResult>(this);
+    connect(m_watcher, &QFutureWatcher<ProcessingResult>::resultReadyAt, this, [this](int index) {
+        ProcessingResult result = m_watcher->resultAt(index);
+        m_progressBar->setValue(m_progressBar->value() + 1);
+
+        int row = m_resultsTable->rowCount();
+        m_resultsTable->insertRow(row);
+
+        QFileInfo info(result.inputPath);
+        m_resultsTable->setItem(row, 0, new QTableWidgetItem(info.fileName()));
+
+        auto formatSize = [](qint64 sz) -> QString {
+            if (sz >= 1024 * 1024)
+                return QString::number(sz / (1024.0 * 1024.0), 'f', 2) + " MB";
+            return QString::number(sz / 1024.0, 'f', 1) + " KB";
+        };
+
+        m_resultsTable->setItem(row, 1, new QTableWidgetItem(formatSize(result.originalSize)));
+        m_resultsTable->setItem(row, 2, new QTableWidgetItem(formatSize(result.newSize)));
+
+        if (result.status == ResultStatus::Success) {
+            double pct = result.reductionPercent();
+            auto *pctItem = new QTableWidgetItem(QString::number(pct, 'f', 1) + "%");
+            if (pct > 50)
+                pctItem->setForeground(QColor(0, 150, 0));
+            else if (pct > 20)
+                pctItem->setForeground(QColor(0, 100, 200));
+            else if (pct < 0)
+                pctItem->setForeground(QColor(200, 0, 0));
+            m_resultsTable->setItem(row, 3, pctItem);
+            m_resultsTable->setItem(row, 4, new QTableWidgetItem("OK"));
+        } else {
+            m_resultsTable->setItem(row, 3, new QTableWidgetItem("-"));
+            auto *statusItem = new QTableWidgetItem(result.errorMessage);
+            statusItem->setForeground(Qt::red);
+            m_resultsTable->setItem(row, 4, statusItem);
+        }
+    });
+    connect(m_watcher, &QFutureWatcher<ProcessingResult>::finished,
+            this, &MainWindow::onProcessingFinished);
+
+    QFuture<ProcessingResult> future = QtConcurrent::mapped(jobs, ImageProcessor::process);
+    m_watcher->setFuture(future);
+}
+
+void MainWindow::onCancel()
+{
+    if (m_watcher) {
+        m_cancelled = true;
+        m_watcher->cancel();
+        m_statusLabel->setText("Cancelling...");
+    }
+}
+
+void MainWindow::onProcessingFinished()
+{
+    m_processBtn->setEnabled(true);
+    m_cancelBtn->setEnabled(false);
+    if (m_cancelled) {
+        m_statusLabel->setText("Cancelled");
+    } else if (m_usePerFileOutput) {
+        m_statusLabel->setText(QString("Done - %1 file(s) saved to \"resized\" subfolders next to originals")
+                              .arg(m_resultsTable->rowCount()));
+    } else {
+        m_statusLabel->setText(QString("Done - %1 file(s) processed").arg(m_resultsTable->rowCount()));
+    }
+    m_watcher->deleteLater();
+    m_watcher = nullptr;
+}
+
+void MainWindow::onCopyResults()
+{
+    QString tsv;
+    // Header
+    for (int c = 0; c < m_resultsTable->columnCount(); ++c) {
+        if (c > 0) tsv += '\t';
+        tsv += m_resultsTable->horizontalHeaderItem(c)->text();
+    }
+    tsv += '\n';
+    // Rows
+    for (int r = 0; r < m_resultsTable->rowCount(); ++r) {
+        for (int c = 0; c < m_resultsTable->columnCount(); ++c) {
+            if (c > 0) tsv += '\t';
+            auto *item = m_resultsTable->item(r, c);
+            tsv += item ? item->text() : "";
+        }
+        tsv += '\n';
+    }
+    QApplication::clipboard()->setText(tsv);
+    m_statusLabel->setText("Results copied to clipboard");
+}
+
+void MainWindow::onOpenOutputFolder()
+{
+    QString dir = m_outputDirEdit->text();
+    if (!dir.isEmpty())
+        QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+}
+
+void MainWindow::onAbout()
+{
+    QMessageBox::about(this, "About Simple Image Resizer",
+        "<h3>Simple Image Resizer</h3>"
+        "<p>Copyright 2024-2026 thanolion</p>"
+        "<p>Licensed under the GNU General Public License v3.0</p>"
+        "<p>A batch image resizer and compressor.</p>"
+
+        "<hr><h4>Qt Framework</h4>"
+        "<p>Built with Qt " QT_VERSION_STR " (dynamic linking).</p>"
+        "<p>Qt is used under the <b>LGPL v3</b> license.<br>"
+        "See <a href=\"https://www.qt.io/licensing\">qt.io/licensing</a> for details.<br>"
+        "Source code available at <a href=\"https://code.qt.io\">code.qt.io</a>.</p>"
+
+        "<hr><h4>LibRaw 0.21.3</h4>"
+        "<p>Copyright 2008-2024 LibRaw LLC<br>"
+        "Used under <b>LGPL v2.1</b> (also available under CDDL v1.0).<br>"
+        "See <a href=\"https://www.libraw.org\">www.libraw.org</a> for details.</p>"
+
+        "<hr><h4>LibRaw Sub-dependencies</h4>"
+        "<ul>"
+        "<li><b>dcraw</b> by Dave Coffin (public domain)</li>"
+        "<li><b>DCB and FBDD demosaic</b> by Jacek Gozdz (BSD 3-Clause)</li>"
+        "<li><b>X3F decoder</b> by Roland Karlsson (BSD)</li>"
+        "<li><b>Adobe DNG SDK</b> (MIT License)</li>"
+        "</ul>"
+
+        "<hr><h4>Support Development</h4>"
+        "<p><a href=\"https://github.com/sponsors/thanolion\">GitHub Sponsors</a>"
+        " | <a href=\"https://ko-fi.com/YOUR_KOFI_USERNAME\">Ko-fi</a></p>"
+
+        "<hr><p>Full license texts are included in the <b>licenses/</b> folder "
+        "distributed with this application.</p>");
+}
+
+void MainWindow::onDonate()
+{
+    QMessageBox box(this);
+    box.setWindowTitle("Support Development");
+    box.setTextFormat(Qt::RichText);
+    box.setText(
+        "<p>If you find Simple Image Resizer useful, consider supporting its development:</p>"
+        "<ul>"
+        "<li><a href=\"https://github.com/sponsors/thanolion\">GitHub Sponsors</a></li>"
+        "<li><a href=\"https://ko-fi.com/YOUR_KOFI_USERNAME\">Ko-fi</a></li>"
+        "</ul>"
+        "<p>Thank you for your support!</p>"
+    );
+    box.exec();
+}
+
+void MainWindow::onResizeModeChanged()
+{
+    updateResizeControls();
+}
+
+void MainWindow::onTargetSizeToggled(bool checked)
+{
+    m_targetSizeSpin->setEnabled(checked);
+    m_qualitySlider->setEnabled(!checked);
+}
+
+void MainWindow::updateResizeControls()
+{
+    int mode = m_modeGroup->checkedId();
+    bool pctMode = (mode == 0);
+    bool widthMode = (mode == 1 || mode == 3);
+    bool heightMode = (mode == 2 || mode == 3);
+    bool noResize = (mode == 4);
+
+    m_resizeSlider->setEnabled(pctMode);
+    m_widthSpin->setEnabled(widthMode);
+    m_heightSpin->setEnabled(heightMode);
+
+    if (noResize) {
+        m_resizeSlider->setEnabled(false);
+        m_widthSpin->setEnabled(false);
+        m_heightSpin->setEnabled(false);
+    }
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData()->hasUrls())
+        event->acceptProposedAction();
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+    QStringList paths;
+    for (const QUrl &url : event->mimeData()->urls()) {
+        QString path = url.toLocalFile();
+        QFileInfo info(path);
+        if (info.isDir()) {
+            QDirIterator it(path, IMAGE_FILTERS, QDir::Files, QDirIterator::Subdirectories);
+            while (it.hasNext())
+                paths << it.next();
+        } else if (info.isFile()) {
+            QString ext = info.suffix().toLower();
+            if (bareExtensions().contains(ext))
+                paths << path;
+        }
+    }
+    addImageFiles(paths);
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    saveSettings();
+    event->accept();
+}
+
+void MainWindow::loadSettings()
+{
+    auto &s = SettingsManager::instance();
+    m_outputDirEdit->setText(s.outputDir());
+
+    int fmtId = static_cast<int>(s.outputFormat());
+    if (auto *btn = m_fmtGroup->button(fmtId)) btn->setChecked(true);
+
+    int modeId = static_cast<int>(s.resizeMode());
+    if (auto *btn = m_modeGroup->button(modeId)) btn->setChecked(true);
+
+    m_resizeSlider->setValue(s.resizePercent());
+    m_widthSpin->setValue(s.resizeWidth());
+    m_heightSpin->setValue(s.resizeHeight());
+    m_qualitySlider->setValue(s.quality());
+    m_targetSizeCheck->setChecked(s.useTargetSize());
+    m_targetSizeSpin->setValue(static_cast<int>(s.targetSizeKB()));
+
+    updateResizeControls();
+    onTargetSizeToggled(m_targetSizeCheck->isChecked());
+}
+
+void MainWindow::saveSettings()
+{
+    auto &s = SettingsManager::instance();
+    s.setOutputDir(m_outputDirEdit->text());
+    s.setOutputFormat(static_cast<OutputFormat>(m_fmtGroup->checkedId()));
+    s.setResizeMode(static_cast<ResizeMode>(m_modeGroup->checkedId()));
+    s.setResizePercent(m_resizeSlider->value());
+    s.setResizeWidth(m_widthSpin->value());
+    s.setResizeHeight(m_heightSpin->value());
+    s.setQuality(m_qualitySlider->value());
+    s.setUseTargetSize(m_targetSizeCheck->isChecked());
+    s.setTargetSizeKB(m_targetSizeSpin->value());
+}
