@@ -1,3 +1,8 @@
+param(
+    [ValidateSet("debug", "release")]
+    [string]$BuildType = "debug"
+)
+
 # --- Load build.env if present ---
 $envFile = Join-Path $PSScriptRoot "build.env"
 if (Test-Path $envFile) {
@@ -76,21 +81,22 @@ if (-not $env:QTDIR) {
 Write-Host "Using QTDIR=$env:QTDIR"
 
 # --- Build ---
+$Preset = "x64-$BuildType"
 Set-Location $PSScriptRoot
 
-if (Test-Path "out\build\x64-debug") {
-    Remove-Item -Recurse -Force "out\build\x64-debug"
+if (Test-Path "out\build\$Preset") {
+    Remove-Item -Recurse -Force "out\build\$Preset"
 }
 
-Write-Host "=== CONFIGURING ==="
-& cmake --preset x64-debug
+Write-Host "=== CONFIGURING ($Preset) ==="
+& cmake --preset $Preset
 if ($LASTEXITCODE -ne 0) {
     Write-Host "=== CONFIGURE FAILED ==="
     exit 1
 }
 
 Write-Host "=== BUILDING ==="
-& cmake --build out/build/x64-debug
+& cmake --build "out/build/$Preset"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "=== BUILD FAILED ==="
     exit 1

@@ -97,17 +97,22 @@ if not defined QTDIR (
 )
 echo Using QTDIR=%QTDIR%
 
+REM --- Parse build type ---
+set "BUILD_TYPE=debug"
+if /i "%~1"=="release" set "BUILD_TYPE=release"
+set "PRESET=x64-%BUILD_TYPE%"
+
 REM --- Build ---
 cd /d "%~dp0"
-if exist out\build\x64-debug rmdir /s /q out\build\x64-debug
-echo === CONFIGURING === > build.log 2>&1
-cmake --preset x64-debug >> build.log 2>&1
+if exist "out\build\%PRESET%" rmdir /s /q "out\build\%PRESET%"
+echo === CONFIGURING (%PRESET%) === > build.log 2>&1
+cmake --preset %PRESET% >> build.log 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo === CONFIGURE FAILED === >> build.log 2>&1
     exit /b 1
 )
 echo === BUILDING === >> build.log 2>&1
-cmake --build out/build/x64-debug >> build.log 2>&1
+cmake --build "out/build/%PRESET%" >> build.log 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo === BUILD FAILED === >> build.log 2>&1
     exit /b 1

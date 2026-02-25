@@ -1,0 +1,252 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag name (e.g. v1.0.0). Leave empty for draft release."
+        required: false
+
+env:
+  QT_VERSION: "6.8.0"
+  APP_NAME: "SimpleImageResizer"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+
+      - name: Set QTDIR
+        shell: bash
+        run: echo "QTDIR=$QT_ROOT_DIR" >> "$GITHUB_ENV"
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        run: cmake --preset x64-release
+
+      - name: Build
+        run: cmake --build out/build/x64-release
+
+      - name: Determine tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=draft" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          cd out/build/x64-release
+          7z a "../../../${APP_NAME}-${TAG}-windows-x64.zip" SimpleImageResizer/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: ${{ env.APP_NAME }}-*-windows-x64.zip
+
+  build-macos:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: clang_64
+
+      - name: Set QTDIR
+        run: echo "QTDIR=$QT_ROOT_DIR" >> "$GITHUB_ENV"
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Configure
+        run: cmake --preset macos-release
+
+      - name: Build
+        run: cmake --build out/build/macos-release
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=draft" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          mkdir -p staging/licenses
+          cp -R out/build/macos-release/SimpleImageResizer/SimpleImageResizer.app staging/
+          cp -R out/build/macos-release/SimpleImageResizer/licenses/* staging/licenses/ 2>/dev/null || true
+          cd staging
+          zip -r "../../${APP_NAME}-${TAG}-macos-x64.zip" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x64
+          path: ${{ env.APP_NAME }}-*-macos-x64.zip
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: gcc_64
+
+      - name: Set QTDIR
+        run: echo "QTDIR=$QT_ROOT_DIR" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake --preset linux-release
+
+      - name: Build
+        run: cmake --build out/build/linux-release
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=draft" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          STAGING="staging/${APP_NAME}"
+          mkdir -p "$STAGING/lib" "$STAGING/plugins/platforms" "$STAGING/licenses"
+
+          # Copy executable
+          cp out/build/linux-release/SimpleImageResizer/SimpleImageResizer "$STAGING/"
+
+          # Copy Qt shared libraries
+          for lib in Core Gui Widgets Concurrent DBus XcbQpa OpenGL; do
+            cp -L "$QTDIR/lib/libQt6${lib}.so.6" "$STAGING/lib/" 2>/dev/null || true
+          done
+
+          # Copy ICU libraries
+          for icu in "$QTDIR"/lib/libicu*.so.*; do
+            [ -f "$icu" ] && cp -L "$icu" "$STAGING/lib/"
+          done
+
+          # Copy xcb platform plugin
+          cp -L "$QTDIR/plugins/platforms/libqxcb.so" "$STAGING/plugins/platforms/" 2>/dev/null || true
+
+          # Copy wayland plugins if present
+          for wl in "$QTDIR"/plugins/platforms/libqwayland*.so; do
+            [ -f "$wl" ] && cp -L "$wl" "$STAGING/plugins/platforms/"
+          done
+
+          # Copy license files
+          cp -R out/build/linux-release/SimpleImageResizer/licenses/* "$STAGING/licenses/" 2>/dev/null || true
+
+          # Create run script
+          cat > "$STAGING/run.sh" << 'RUNEOF'
+          #!/usr/bin/env bash
+          SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+          export LD_LIBRARY_PATH="$SCRIPT_DIR/lib:$LD_LIBRARY_PATH"
+          export QT_PLUGIN_PATH="$SCRIPT_DIR/plugins"
+          exec "$SCRIPT_DIR/SimpleImageResizer" "$@"
+          RUNEOF
+          chmod +x "$STAGING/run.sh"
+
+          # Create tarball
+          cd staging
+          tar czf "../../${APP_NAME}-${TAG}-linux-x64.tar.gz" "${APP_NAME}/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: ${{ env.APP_NAME }}-*-linux-x64.tar.gz
+
+  release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Determine release params
+        id: params
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG=""
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$TAG" ]; then
+            echo "draft=true" >> "$GITHUB_OUTPUT"
+            echo "tag_name=draft-$(date +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+          else
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ "$TAG" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.params.outputs.tag_name }}
+          draft: ${{ steps.params.outputs.draft }}
+          prerelease: ${{ steps.params.outputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            *.zip
+            *.tar.gz

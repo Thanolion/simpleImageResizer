@@ -35,8 +35,9 @@ compile_commands.json
 *.exp
 *.ilk
 
-# Claude Code workspace
+# Claude Code
 /.claude/
+CLAUDE.md
 
 # OS files
 Thumbs.db
