@@ -48,7 +48,22 @@ qt_add_executable(SimpleImageResizer
     SettingsManager.cpp
     ImageProcessor.h
     ImageProcessor.cpp
+    resources.qrc
 )
+
+# Windows: embed icon in executable
+if(WIN32)
+    target_sources(SimpleImageResizer PRIVATE app_icon.rc)
+endif()
+
+# macOS: bundle icon
+if(APPLE)
+    set(MACOSX_ICON "${CMAKE_CURRENT_SOURCE_DIR}/icons/app_icon.icns")
+    set_source_files_properties(${MACOSX_ICON} PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources"
+    )
+    target_sources(SimpleImageResizer PRIVATE ${MACOSX_ICON})
+endif()
 
 target_link_libraries(SimpleImageResizer PRIVATE
     Qt6::Widgets
@@ -63,6 +78,7 @@ set_target_properties(SimpleImageResizer PROPERTIES
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     MACOSX_BUNDLE_BUNDLE_NAME "Simple Image Resizer"
+    MACOSX_BUNDLE_ICON_FILE "app_icon.icns"
 )
 
 # Platform-specific deployment

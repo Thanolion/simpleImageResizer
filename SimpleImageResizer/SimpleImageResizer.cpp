@@ -4,6 +4,8 @@
 #include "SimpleImageResizer.h"
 #include "MainWindow.h"
 
+#include <QIcon>
+
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
@@ -12,6 +14,8 @@ int main(int argc, char *argv[])
 
     // Ensure Qt finds image format plugins (e.g. qwebp) next to the executable
     QApplication::addLibraryPath(QCoreApplication::applicationDirPath());
+
+    app.setWindowIcon(QIcon(":/icons/app_icon.png"));
 
     MainWindow window;
     window.show();
