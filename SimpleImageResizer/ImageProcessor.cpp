@@ -11,6 +11,11 @@
 #include <libraw/libraw.h>
 #include <avif/avif.h>
 
+static bool isCancelled(const ProcessingJob &job)
+{
+    return job.cancelFlag && job.cancelFlag->load(std::memory_order_relaxed);
+}
+
 static QImage loadRawImage(const QString &path)
 {
     LibRaw raw;
@@ -43,7 +48,7 @@ static QByteArray encodeAvifToMemory(const QImage &img, int quality)
 {
     QImage rgbaImg = img.convertToFormat(QImage::Format_RGBA8888);
 
-    avifImage *avifImg = avifImageCreate(rgbaImg.width(), rgbaImg.height(), 8, AVIF_PIXEL_FORMAT_YUV444);
+    avifImage *avifImg = avifImageCreate(rgbaImg.width(), rgbaImg.height(), 8, AVIF_PIXEL_FORMAT_YUV420);
     if (!avifImg) return {};
 
     avifRGBImage rgb;
@@ -59,9 +64,15 @@ static QByteArray encodeAvifToMemory(const QImage &img, int quality)
     }
 
     avifEncoder *encoder = avifEncoderCreate();
+    if (!encoder) {
+        avifImageDestroy(avifImg);
+        return {};
+    }
     encoder->quality = quality;
     encoder->qualityAlpha = quality;
-    encoder->speed = AVIF_SPEED_DEFAULT;
+    encoder->speed = 8;
+    encoder->maxThreads = 2;
+    encoder->autoTiling = AVIF_TRUE;
 
     avifRWData output = AVIF_DATA_EMPTY;
     avifResult result = avifEncoderWrite(encoder, avifImg, &output);
@@ -83,7 +94,12 @@ QImage ImageProcessor::loadAvifImage(const QString &path)
     QByteArray data = file.readAll();
 
     avifImage *avifImg = avifImageCreateEmpty();
+    if (!avifImg) return {};
     avifDecoder *decoder = avifDecoderCreate();
+    if (!decoder) {
+        avifImageDestroy(avifImg);
+        return {};
+    }
     avifResult result = avifDecoderReadMemory(decoder, avifImg,
         reinterpret_cast<const uint8_t *>(data.constData()), data.size());
 
@@ -118,9 +134,9 @@ bool ImageProcessor::saveAvifImage(const QImage &img, const QString &path, int q
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly)) return false;
-    file.write(data);
+    qint64 written = file.write(data);
     file.close();
-    return true;
+    return written == data.size();
 }
 
 QImage ImageProcessor::loadImage(const QString &path)
@@ -140,6 +156,12 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
 
     QFileInfo inputInfo(job.inputPath);
     result.originalSize = inputInfo.size();
+
+    // Checkpoint 1: before image load
+    if (isCancelled(job)) {
+        result.status = ResultStatus::Cancelled;
+        return result;
+    }
 
     QImage img = loadImage(job.inputPath);
     if (img.isNull()) {
@@ -196,6 +218,12 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
     result.newWidth = resized.width();
     result.newHeight = resized.height();
 
+    // Checkpoint 2: after resize, before encoding
+    if (isCancelled(job)) {
+        result.status = ResultStatus::Cancelled;
+        return result;
+    }
+
     QByteArray fmtName = formatName(job.format);
     QString outputPath = job.outputPath;
     result.outputPath = outputPath;
@@ -212,6 +240,11 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
         QByteArray bestData;
 
         for (int iter = 0; iter < 10 && lo <= hi; ++iter) {
+            // Checkpoint 3: inside binary-search loop
+            if (isCancelled(job)) {
+                result.status = ResultStatus::Cancelled;
+                return result;
+            }
             int mid = (lo + hi) / 2;
             QByteArray data;
             if (job.format == OutputFormat::AVIF) {
@@ -247,6 +280,11 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
         if (bestData.isEmpty()) {
             if (job.format == OutputFormat::AVIF) {
                 bestData = encodeAvifToMemory(resized, 1);
+                if (bestData.isEmpty()) {
+                    result.status = ResultStatus::FailedToSave;
+                    result.errorMessage = "Failed to encode AVIF at minimum quality";
+                    return result;
+                }
             } else {
                 QBuffer buffer(&bestData);
                 buffer.open(QIODevice::WriteOnly);
@@ -259,6 +297,12 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
                 }
                 buffer.close();
             }
+        }
+
+        // Checkpoint 4: before final file write
+        if (isCancelled(job)) {
+            result.status = ResultStatus::Cancelled;
+            return result;
         }
 
         QFile outFile(outputPath);

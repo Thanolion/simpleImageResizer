@@ -62,6 +62,7 @@ MainWindow::~MainWindow()
 {
     // Safety net — closeEvent should have already handled this
     if (m_watcher && m_watcher->isRunning()) {
+        m_cancelled = true;
         m_watcher->disconnect();
         m_watcher->cancel();
         m_watcher->waitForFinished();
@@ -458,6 +459,7 @@ void MainWindow::onProcess()
         job.quality = m_qualitySlider->value();
         job.useTargetSize = m_targetSizeCheck->isChecked();
         job.targetSizeKB = m_targetSizeSpin->value();
+        job.cancelFlag = &m_cancelled;
         jobs << job;
     }
 
@@ -509,6 +511,11 @@ void MainWindow::onProcess()
             if (!result.errorMessage.isEmpty())
                 statusText += " (" + result.errorMessage + ")";
             m_resultsTable->setItem(row, 4, new QTableWidgetItem(statusText));
+        } else if (result.status == ResultStatus::Cancelled) {
+            m_resultsTable->setItem(row, 3, new QTableWidgetItem("-"));
+            auto *statusItem = new QTableWidgetItem("Cancelled");
+            statusItem->setForeground(QColor(150, 150, 150));
+            m_resultsTable->setItem(row, 4, statusItem);
         } else {
             m_resultsTable->setItem(row, 3, new QTableWidgetItem("-"));
             auto *statusItem = new QTableWidgetItem(result.errorMessage);
@@ -537,7 +544,23 @@ void MainWindow::onProcessingFinished()
     m_processBtn->setEnabled(true);
     m_cancelBtn->setEnabled(false);
     if (m_cancelled) {
-        m_statusLabel->setText("Cancelled");
+        // Sweep stale "Processing..." rows that never got a result
+        int completedCount = 0;
+        for (int r = 0; r < m_resultsTable->rowCount(); ++r) {
+            auto *statusItem = m_resultsTable->item(r, 4);
+            if (statusItem && statusItem->text() == "Processing...") {
+                m_resultsTable->setItem(r, 1, new QTableWidgetItem("-"));
+                m_resultsTable->setItem(r, 2, new QTableWidgetItem("-"));
+                m_resultsTable->setItem(r, 3, new QTableWidgetItem("-"));
+                auto *cancelledItem = new QTableWidgetItem("Cancelled");
+                cancelledItem->setForeground(QColor(150, 150, 150));
+                m_resultsTable->setItem(r, 4, cancelledItem);
+            } else if (statusItem && statusItem->text().startsWith("OK")) {
+                ++completedCount;
+            }
+        }
+        m_statusLabel->setText(QString("Cancelled (%1 of %2 completed)")
+                               .arg(completedCount).arg(m_resultsTable->rowCount()));
     } else if (m_usePerFileOutput) {
         m_statusLabel->setText(QString("Done - %1 file(s) saved to \"resized\" subfolders next to originals")
                               .arg(m_resultsTable->rowCount()));
@@ -737,6 +760,7 @@ void MainWindow::dropEvent(QDropEvent *event)
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (m_watcher && m_watcher->isRunning()) {
+        m_cancelled = true;
         m_watcher->disconnect();
         m_watcher->cancel();
         m_statusLabel->setText("Cancelling...");

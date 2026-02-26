@@ -45,7 +45,9 @@ jobs:
 
       - name: Install NASM (for libaom SIMD optimizations)
         shell: bash
-        run: choco install nasm -y
+        run: |
+          choco install nasm -y
+          echo "C:/Program Files/NASM" >> "$GITHUB_PATH"
 
       - name: Configure
         run: cmake --preset x64-release

@@ -23,6 +23,8 @@
 #include "ProcessingJob.h"
 #include "ProcessingResult.h"
 
+class FormatGuideDialog;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -107,7 +109,7 @@ private:
     QPushButton *m_openOutputBtn = nullptr;
 
     // Format Guide
-    QPointer<QDialog> m_formatGuideDialog;
+    QPointer<FormatGuideDialog> m_formatGuideDialog;
 
     // Processing state
     QFutureWatcher<ProcessingResult> *m_watcher = nullptr;

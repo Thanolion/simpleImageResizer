@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <QString>
 
 enum class ResizeMode {
@@ -32,4 +33,5 @@ struct ProcessingJob {
     int quality = 85;
     bool useTargetSize = false;
     qint64 targetSizeKB = 500;
+    std::atomic<bool> *cancelFlag = nullptr;
 };

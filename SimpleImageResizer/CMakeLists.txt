@@ -168,6 +168,7 @@ add_custom_command(TARGET SimpleImageResizer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${libraw_SOURCE_DIR}/LICENSE.CDDL" "${LICENSE_DIR}/LibRaw-LICENSE.CDDL"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${libraw_SOURCE_DIR}/COPYRIGHT" "${LICENSE_DIR}/LibRaw-COPYRIGHT"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${libavif_SOURCE_DIR}/LICENSE" "${LICENSE_DIR}/libavif-LICENSE"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_BINARY_DIR}/_deps/libaom-src/LICENSE" "${LICENSE_DIR}/libaom-LICENSE"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/licenses/LGPL-3.0.txt" "${LICENSE_DIR}/LGPL-3.0.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/licenses/LGPL-2.1.txt" "${LICENSE_DIR}/LGPL-2.1.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/licenses/GPL-3.0.txt" "${LICENSE_DIR}/GPL-3.0.txt"
