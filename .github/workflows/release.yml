@@ -225,13 +225,13 @@ jobs:
           fi
 
           # Create run script
-          cat > "$STAGING/run.sh" << 'RUNEOF'
-#!/usr/bin/env bash
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-export LD_LIBRARY_PATH="$SCRIPT_DIR/lib:$LD_LIBRARY_PATH"
-export QT_PLUGIN_PATH="$SCRIPT_DIR/plugins"
-exec "$SCRIPT_DIR/SimpleImageResizer" "$@"
-RUNEOF
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"' \
+            'export LD_LIBRARY_PATH="$SCRIPT_DIR/lib:$LD_LIBRARY_PATH"' \
+            'export QT_PLUGIN_PATH="$SCRIPT_DIR/plugins"' \
+            'exec "$SCRIPT_DIR/SimpleImageResizer" "$@"' \
+            > "$STAGING/run.sh"
           chmod +x "$STAGING/run.sh"
 
           # Create tarball
