@@ -10,6 +10,9 @@ int main(int argc, char *argv[])
     app.setApplicationName("Simple Image Resizer");
     app.setOrganizationName("SimpleImageResizer");
 
+    // Ensure Qt finds image format plugins (e.g. qwebp) next to the executable
+    QApplication::addLibraryPath(QCoreApplication::applicationDirPath());
+
     MainWindow window;
     window.show();
 
