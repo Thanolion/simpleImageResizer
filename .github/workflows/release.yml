@@ -87,7 +87,7 @@ jobs:
           path: ${{ env.APP_NAME }}-*-windows-x64.zip
 
   build-macos:
-    runs-on: macos-13
+    runs-on: macos-14
     permissions:
       contents: read
     steps:
@@ -162,7 +162,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
-          arch: gcc_64
+          arch: linux_gcc_64
           cache: true
 
       - name: Set QTDIR
