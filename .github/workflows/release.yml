@@ -43,6 +43,10 @@ jobs:
         shell: bash
         run: ninja --version || choco install ninja -y
 
+      - name: Install NASM (for libaom SIMD optimizations)
+        shell: bash
+        run: choco install nasm -y
+
       - name: Configure
         run: cmake --preset x64-release
 
@@ -105,8 +109,8 @@ jobs:
       - name: Set QTDIR
         run: echo "QTDIR=$QT_ROOT_DIR" >> "$GITHUB_ENV"
 
-      - name: Install Ninja
-        run: brew install ninja
+      - name: Install Ninja and NASM
+        run: brew install ninja nasm
 
       - name: Configure
         run: cmake --preset macos-release
@@ -158,7 +162,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev nasm
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4

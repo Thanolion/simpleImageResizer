@@ -37,6 +37,49 @@ else()
     target_compile_options(raw PRIVATE -w)
 endif()
 
+# Fetch libavif for AVIF image support (with internal libaom AV1 codec)
+set(AVIF_CODEC_AOM "LOCAL" CACHE STRING "" FORCE)
+set(AVIF_CODEC_AOM_DECODE ON CACHE BOOL "" FORCE)
+set(AVIF_CODEC_AOM_ENCODE ON CACHE BOOL "" FORCE)
+set(AVIF_LIBYUV "OFF" CACHE STRING "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(AVIF_BUILD_APPS OFF CACHE BOOL "" FORCE)
+set(AVIF_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(AVIF_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+# Disable unnecessary libaom components for faster builds
+set(ENABLE_DOCS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(ENABLE_TOOLS OFF CACHE BOOL "" FORCE)
+# Fall back to generic C if NASM/YASM not available (SIMD optimizations require NASM)
+find_program(NASM_EXE nasm)
+find_program(YASM_EXE yasm)
+if(NOT NASM_EXE AND NOT YASM_EXE)
+    set(AOM_TARGET_CPU "generic" CACHE STRING "" FORCE)
+    message(STATUS "NASM/YASM not found — building libaom without SIMD optimizations")
+endif()
+FetchContent_Declare(libavif
+    GIT_REPOSITORY https://github.com/AOMediaCodec/libavif.git
+    GIT_TAG        v1.1.1
+)
+FetchContent_MakeAvailable(libavif)
+
+# Suppress warnings on libavif and its dependencies
+if(TARGET avif)
+    if(MSVC)
+        target_compile_options(avif PRIVATE /W0)
+    else()
+        target_compile_options(avif PRIVATE -w)
+    endif()
+endif()
+if(TARGET aom)
+    if(MSVC)
+        target_compile_options(aom PRIVATE /W0)
+    else()
+        target_compile_options(aom PRIVATE -w)
+    endif()
+endif()
+
 qt_add_executable(SimpleImageResizer
     SimpleImageResizer.cpp
     SimpleImageResizer.h
@@ -48,6 +91,8 @@ qt_add_executable(SimpleImageResizer
     SettingsManager.cpp
     ImageProcessor.h
     ImageProcessor.cpp
+    FormatGuideDialog.h
+    FormatGuideDialog.cpp
     resources.qrc
 )
 
@@ -69,6 +114,7 @@ target_link_libraries(SimpleImageResizer PRIVATE
     Qt6::Widgets
     Qt6::Concurrent
     raw
+    avif
 )
 
 set_target_properties(SimpleImageResizer PROPERTIES
@@ -121,6 +167,7 @@ add_custom_command(TARGET SimpleImageResizer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${libraw_SOURCE_DIR}/LICENSE.LGPL" "${LICENSE_DIR}/LibRaw-LICENSE.LGPL"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${libraw_SOURCE_DIR}/LICENSE.CDDL" "${LICENSE_DIR}/LibRaw-LICENSE.CDDL"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${libraw_SOURCE_DIR}/COPYRIGHT" "${LICENSE_DIR}/LibRaw-COPYRIGHT"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${libavif_SOURCE_DIR}/LICENSE" "${LICENSE_DIR}/libavif-LICENSE"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/licenses/LGPL-3.0.txt" "${LICENSE_DIR}/LGPL-3.0.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/licenses/LGPL-2.1.txt" "${LICENSE_DIR}/LGPL-2.1.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/licenses/GPL-3.0.txt" "${LICENSE_DIR}/GPL-3.0.txt"

@@ -17,4 +17,6 @@ public:
 private:
     static QImage loadImage(const QString &path);
     static QByteArray formatName(OutputFormat fmt);
+    static QImage loadAvifImage(const QString &path);
+    static bool saveAvifImage(const QImage &img, const QString &path, int quality);
 };

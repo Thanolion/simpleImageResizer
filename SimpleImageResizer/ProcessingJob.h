@@ -16,7 +16,8 @@ enum class ResizeMode {
 enum class OutputFormat {
     JPEG,
     PNG,
-    WebP
+    WebP,
+    AVIF
 };
 
 struct ProcessingJob {

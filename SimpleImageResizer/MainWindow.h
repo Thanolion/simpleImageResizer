@@ -18,6 +18,7 @@
 #include <QFutureWatcher>
 #include <QSplitter>
 #include <QButtonGroup>
+#include <QPointer>
 
 #include "ProcessingJob.h"
 #include "ProcessingResult.h"
@@ -49,6 +50,8 @@ private slots:
     void onDonate();
     void onResizeModeChanged();
     void onTargetSizeToggled(bool checked);
+    void onFormatChanged(int formatId);
+    void onFormatGuide();
 
 private:
     void setupMenuBar();
@@ -71,6 +74,7 @@ private:
     QRadioButton *m_fmtJpg = nullptr;
     QRadioButton *m_fmtPng = nullptr;
     QRadioButton *m_fmtWebp = nullptr;
+    QRadioButton *m_fmtAvif = nullptr;
     QButtonGroup *m_fmtGroup = nullptr;
 
     // Processing options
@@ -86,6 +90,8 @@ private:
     QSpinBox *m_heightSpin = nullptr;
     QSlider *m_qualitySlider = nullptr;
     QLabel *m_qualityLabel = nullptr;
+    QLabel *m_qualityTextLabel = nullptr;
+    QLabel *m_pngInfoLabel = nullptr;
     QCheckBox *m_targetSizeCheck = nullptr;
     QSpinBox *m_targetSizeSpin = nullptr;
 
@@ -99,6 +105,9 @@ private:
     QTableWidget *m_resultsTable = nullptr;
     QPushButton *m_copyResultsBtn = nullptr;
     QPushButton *m_openOutputBtn = nullptr;
+
+    // Format Guide
+    QPointer<QDialog> m_formatGuideDialog;
 
     // Processing state
     QFutureWatcher<ProcessingResult> *m_watcher = nullptr;

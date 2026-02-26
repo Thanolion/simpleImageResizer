@@ -3,11 +3,13 @@
 
 #include "ImageProcessor.h"
 #include <QImage>
+#include <QFile>
 #include <QFileInfo>
 #include <QDir>
 #include <QBuffer>
 #include <QImageWriter>
 #include <libraw/libraw.h>
+#include <avif/avif.h>
 
 static QImage loadRawImage(const QString &path)
 {
@@ -37,9 +39,96 @@ static QImage loadRawImage(const QString &path)
     return copy;
 }
 
+static QByteArray encodeAvifToMemory(const QImage &img, int quality)
+{
+    QImage rgbaImg = img.convertToFormat(QImage::Format_RGBA8888);
+
+    avifImage *avifImg = avifImageCreate(rgbaImg.width(), rgbaImg.height(), 8, AVIF_PIXEL_FORMAT_YUV444);
+    if (!avifImg) return {};
+
+    avifRGBImage rgb;
+    avifRGBImageSetDefaults(&rgb, avifImg);
+    rgb.format = AVIF_RGB_FORMAT_RGBA;
+    rgb.depth = 8;
+    rgb.pixels = const_cast<uint8_t *>(rgbaImg.constBits());
+    rgb.rowBytes = static_cast<uint32_t>(rgbaImg.bytesPerLine());
+
+    if (avifImageRGBToYUV(avifImg, &rgb) != AVIF_RESULT_OK) {
+        avifImageDestroy(avifImg);
+        return {};
+    }
+
+    avifEncoder *encoder = avifEncoderCreate();
+    encoder->quality = quality;
+    encoder->qualityAlpha = quality;
+    encoder->speed = AVIF_SPEED_DEFAULT;
+
+    avifRWData output = AVIF_DATA_EMPTY;
+    avifResult result = avifEncoderWrite(encoder, avifImg, &output);
+    avifEncoderDestroy(encoder);
+    avifImageDestroy(avifImg);
+
+    QByteArray bytes;
+    if (result == AVIF_RESULT_OK) {
+        bytes = QByteArray(reinterpret_cast<const char *>(output.data), output.size);
+    }
+    avifRWDataFree(&output);
+    return bytes;
+}
+
+QImage ImageProcessor::loadAvifImage(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    QByteArray data = file.readAll();
+
+    avifImage *avifImg = avifImageCreateEmpty();
+    avifDecoder *decoder = avifDecoderCreate();
+    avifResult result = avifDecoderReadMemory(decoder, avifImg,
+        reinterpret_cast<const uint8_t *>(data.constData()), data.size());
+
+    QImage qImg;
+    if (result == AVIF_RESULT_OK) {
+        avifRGBImage rgb;
+        avifRGBImageSetDefaults(&rgb, avifImg);
+        rgb.format = AVIF_RGB_FORMAT_RGBA;
+        rgb.depth = 8;
+        if (avifRGBImageAllocatePixels(&rgb) != AVIF_RESULT_OK) {
+            avifDecoderDestroy(decoder);
+            avifImageDestroy(avifImg);
+            return {};
+        }
+        if (avifImageYUVToRGB(avifImg, &rgb) == AVIF_RESULT_OK) {
+            QImage temp(rgb.pixels, rgb.width, rgb.height,
+                       rgb.rowBytes, QImage::Format_RGBA8888);
+            qImg = temp.copy(); // deep copy before freeing
+        }
+        avifRGBImageFreePixels(&rgb);
+    }
+
+    avifDecoderDestroy(decoder);
+    avifImageDestroy(avifImg);
+    return qImg;
+}
+
+bool ImageProcessor::saveAvifImage(const QImage &img, const QString &path, int quality)
+{
+    QByteArray data = encodeAvifToMemory(img, quality);
+    if (data.isEmpty()) return false;
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) return false;
+    file.write(data);
+    file.close();
+    return true;
+}
+
 QImage ImageProcessor::loadImage(const QString &path)
 {
     QImage img(path);
+    if (!img.isNull()) return img;
+    // Try AVIF (since Qt doesn't natively support it without plugin)
+    img = loadAvifImage(path);
     if (!img.isNull()) return img;
     return loadRawImage(path);
 }
@@ -125,16 +214,25 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
         for (int iter = 0; iter < 10 && lo <= hi; ++iter) {
             int mid = (lo + hi) / 2;
             QByteArray data;
-            QBuffer buffer(&data);
-            buffer.open(QIODevice::WriteOnly);
-            QImageWriter writer(&buffer, fmtName);
-            writer.setQuality(mid);
-            if (!writer.write(resized)) {
-                result.status = ResultStatus::FailedToSave;
-                result.errorMessage = "Failed to encode image at quality " + QString::number(mid);
-                return result;
+            if (job.format == OutputFormat::AVIF) {
+                data = encodeAvifToMemory(resized, mid);
+                if (data.isEmpty()) {
+                    result.status = ResultStatus::FailedToSave;
+                    result.errorMessage = "Failed to encode AVIF at quality " + QString::number(mid);
+                    return result;
+                }
+            } else {
+                QBuffer buffer(&data);
+                buffer.open(QIODevice::WriteOnly);
+                QImageWriter writer(&buffer, fmtName);
+                writer.setQuality(mid);
+                if (!writer.write(resized)) {
+                    result.status = ResultStatus::FailedToSave;
+                    result.errorMessage = "Failed to encode image at quality " + QString::number(mid);
+                    return result;
+                }
+                buffer.close();
             }
-            buffer.close();
 
             if (data.size() <= targetBytes) {
                 bestQuality = mid;
@@ -147,16 +245,20 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
 
         // If we never got under target, use lowest quality result
         if (bestData.isEmpty()) {
-            QBuffer buffer(&bestData);
-            buffer.open(QIODevice::WriteOnly);
-            QImageWriter writer(&buffer, fmtName);
-            writer.setQuality(1);
-            if (!writer.write(resized)) {
-                result.status = ResultStatus::FailedToSave;
-                result.errorMessage = "Failed to encode image at minimum quality";
-                return result;
+            if (job.format == OutputFormat::AVIF) {
+                bestData = encodeAvifToMemory(resized, 1);
+            } else {
+                QBuffer buffer(&bestData);
+                buffer.open(QIODevice::WriteOnly);
+                QImageWriter writer(&buffer, fmtName);
+                writer.setQuality(1);
+                if (!writer.write(resized)) {
+                    result.status = ResultStatus::FailedToSave;
+                    result.errorMessage = "Failed to encode image at minimum quality";
+                    return result;
+                }
+                buffer.close();
             }
-            buffer.close();
         }
 
         QFile outFile(outputPath);
@@ -169,17 +271,28 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
         outFile.close();
         result.newSize = bestData.size();
     } else {
-        QImageWriter writer(outputPath, fmtName);
-        if (job.format != OutputFormat::PNG) {
-            writer.setQuality(job.quality);
+        // Normal save (no target size)
+        if (job.format == OutputFormat::AVIF) {
+            if (!saveAvifImage(resized, outputPath, job.quality)) {
+                result.status = ResultStatus::FailedToSave;
+                result.errorMessage = "Failed to save AVIF: " + outputPath;
+                return result;
+            }
+            QFileInfo outInfo(outputPath);
+            result.newSize = outInfo.size();
+        } else {
+            QImageWriter writer(outputPath, fmtName);
+            if (job.format != OutputFormat::PNG) {
+                writer.setQuality(job.quality);
+            }
+            if (!writer.write(resized)) {
+                result.status = ResultStatus::FailedToSave;
+                result.errorMessage = "Failed to save: " + writer.errorString();
+                return result;
+            }
+            QFileInfo outInfo(outputPath);
+            result.newSize = outInfo.size();
         }
-        if (!writer.write(resized)) {
-            result.status = ResultStatus::FailedToSave;
-            result.errorMessage = "Failed to save: " + writer.errorString();
-            return result;
-        }
-        QFileInfo outInfo(outputPath);
-        result.newSize = outInfo.size();
     }
 
     result.status = ResultStatus::Success;
@@ -192,6 +305,7 @@ QString ImageProcessor::formatExtension(OutputFormat fmt)
     case OutputFormat::JPEG: return ".jpg";
     case OutputFormat::PNG:  return ".png";
     case OutputFormat::WebP: return ".webp";
+    case OutputFormat::AVIF: return ".avif";
     }
     return ".jpg";
 }
@@ -202,6 +316,7 @@ QByteArray ImageProcessor::formatName(OutputFormat fmt)
     case OutputFormat::JPEG: return "jpeg";
     case OutputFormat::PNG:  return "png";
     case OutputFormat::WebP: return "webp";
+    case OutputFormat::AVIF: return "avif";
     }
     return "jpeg";
 }

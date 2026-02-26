@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 thanolion
 
 #include "MainWindow.h"
+#include "FormatGuideDialog.h"
 #include "ImageProcessor.h"
 #include "SettingsManager.h"
 
@@ -31,7 +32,7 @@
 #include <QImageReader>
 
 static const QStringList IMAGE_FILTERS = {
-    "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.tiff", "*.tif", "*.webp",
+    "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.tiff", "*.tif", "*.webp", "*.avif",
     "*.cr2", "*.cr3", "*.nef", "*.nrw", "*.arw", "*.dng", "*.raf", "*.orf", "*.rw2", "*.pef", "*.srw"
 };
 
@@ -74,6 +75,9 @@ void MainWindow::setupMenuBar()
     connect(exitAction, &QAction::triggered, this, &QWidget::close);
 
     auto *helpMenu = menuBar()->addMenu("&Help");
+    auto *formatGuideAction = helpMenu->addAction("Image &Format Guide...");
+    connect(formatGuideAction, &QAction::triggered, this, &MainWindow::onFormatGuide);
+    helpMenu->addSeparator();
     auto *aboutAction = helpMenu->addAction("&About");
     connect(aboutAction, &QAction::triggered, this, &MainWindow::onAbout);
 
@@ -135,9 +139,12 @@ void MainWindow::setupUI()
     m_fmtGroup->addButton(m_fmtJpg, 0);
     m_fmtGroup->addButton(m_fmtPng, 1);
     m_fmtGroup->addButton(m_fmtWebp, 2);
+    m_fmtAvif = new QRadioButton("AVIF");
+    m_fmtGroup->addButton(m_fmtAvif, 3);
     fmtLayout->addWidget(m_fmtJpg);
     fmtLayout->addWidget(m_fmtPng);
     fmtLayout->addWidget(m_fmtWebp);
+    fmtLayout->addWidget(m_fmtAvif);
     fmtLayout->addStretch();
     outputLayout->addLayout(fmtLayout);
     leftLayout->addWidget(outputGroup);
@@ -195,7 +202,8 @@ void MainWindow::setupUI()
 
     // Quality slider
     auto *qualRow = new QHBoxLayout;
-    qualRow->addWidget(new QLabel("Quality:"));
+    m_qualityTextLabel = new QLabel("Quality:");
+    qualRow->addWidget(m_qualityTextLabel);
     m_qualitySlider = new QSlider(Qt::Horizontal);
     m_qualitySlider->setRange(1, 100);
     m_qualitySlider->setValue(85);
@@ -216,6 +224,12 @@ void MainWindow::setupUI()
     targetRow->addWidget(m_targetSizeSpin);
     targetRow->addStretch();
     optLayout->addLayout(targetRow);
+
+    m_pngInfoLabel = new QLabel("PNG uses lossless compression — quality and target size settings do not apply.");
+    m_pngInfoLabel->setStyleSheet("QLabel { color: #666; font-style: italic; padding: 2px 0; }");
+    m_pngInfoLabel->setWordWrap(true);
+    m_pngInfoLabel->setVisible(false);
+    optLayout->addWidget(m_pngInfoLabel);
 
     leftLayout->addWidget(optGroup);
 
@@ -284,6 +298,7 @@ void MainWindow::setupUI()
         m_qualityLabel->setText(QString::number(val));
     });
     connect(m_targetSizeCheck, &QCheckBox::toggled, this, &MainWindow::onTargetSizeToggled);
+    connect(m_fmtGroup, &QButtonGroup::idClicked, this, &MainWindow::onFormatChanged);
     connect(m_modeGroup, &QButtonGroup::idClicked, this, [this](int) {
         onResizeModeChanged();
     });
@@ -581,6 +596,16 @@ void MainWindow::onAbout()
         "Used under <b>LGPL v2.1</b> (also available under CDDL v1.0).<br>"
         "See <a href=\"https://www.libraw.org\">www.libraw.org</a> for details.</p>"
 
+        "<hr><h4>libavif 1.1.1</h4>"
+        "<p>Copyright 2019 Joe Drago and libavif contributors<br>"
+        "Used under <b>BSD 2-Clause</b> license.<br>"
+        "See <a href=\"https://github.com/AOMediaCodec/libavif\">github.com/AOMediaCodec/libavif</a> for details.</p>"
+
+        "<hr><h4>libaom (AV1 codec)</h4>"
+        "<p>Copyright 2016 Alliance for Open Media<br>"
+        "Used under <b>BSD 2-Clause</b> license.<br>"
+        "See <a href=\"https://aomedia.googlesource.com/aom/\">aomedia.googlesource.com/aom</a> for details.</p>"
+
         "<hr><h4>LibRaw Sub-dependencies</h4>"
         "<ul>"
         "<li><b>dcraw</b> by Dave Coffin (public domain)</li>"
@@ -613,6 +638,16 @@ void MainWindow::onDonate()
     box.exec();
 }
 
+void MainWindow::onFormatGuide()
+{
+    if (!m_formatGuideDialog) {
+        m_formatGuideDialog = new FormatGuideDialog(this);
+    }
+    m_formatGuideDialog->show();
+    m_formatGuideDialog->raise();
+    m_formatGuideDialog->activateWindow();
+}
+
 void MainWindow::onResizeModeChanged()
 {
     updateResizeControls();
@@ -621,7 +656,37 @@ void MainWindow::onResizeModeChanged()
 void MainWindow::onTargetSizeToggled(bool checked)
 {
     m_targetSizeSpin->setEnabled(checked);
-    m_qualitySlider->setEnabled(!checked);
+    bool isPng = (m_fmtGroup->checkedId() == 1);
+    if (!isPng) {
+        m_qualitySlider->setEnabled(!checked);
+        m_qualityTextLabel->setEnabled(!checked);
+        m_qualityLabel->setEnabled(!checked);
+    }
+}
+
+void MainWindow::onFormatChanged(int formatId)
+{
+    bool isPng = (formatId == 1); // OutputFormat::PNG
+
+    // Quality controls
+    m_qualityTextLabel->setEnabled(!isPng);
+    m_qualitySlider->setEnabled(!isPng && !m_targetSizeCheck->isChecked());
+    m_qualityLabel->setEnabled(!isPng);
+
+    // Target size controls
+    if (isPng) {
+        m_targetSizeCheck->setChecked(false);
+        m_targetSizeCheck->setEnabled(false);
+        m_targetSizeSpin->setEnabled(false);
+    } else {
+        m_targetSizeCheck->setEnabled(true);
+        m_targetSizeSpin->setEnabled(m_targetSizeCheck->isChecked());
+        // Restore quality slider state based on target size toggle
+        m_qualitySlider->setEnabled(!m_targetSizeCheck->isChecked());
+    }
+
+    // Info label
+    m_pngInfoLabel->setVisible(isPng);
 }
 
 void MainWindow::updateResizeControls()
@@ -701,6 +766,7 @@ void MainWindow::loadSettings()
 
     updateResizeControls();
     onTargetSizeToggled(m_targetSizeCheck->isChecked());
+    onFormatChanged(m_fmtGroup->checkedId());
 }
 
 void MainWindow::saveSettings()

@@ -32,7 +32,37 @@ Full license text: LGPL-2.1.txt / LibRaw-LICENSE.LGPL (in licenses/ directory)
 More info: https://www.libraw.org
 
 
-3. LibRaw Sub-dependencies
+3. libavif 1.1.1 — BSD-2-Clause
+---------------------------------
+
+libavif is used in this project under the terms of the BSD 2-Clause License.
+
+Copyright (C) 2019 Joe Drago and libavif contributors
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the conditions of the
+BSD 2-Clause License are met.
+
+Full license text: libavif-LICENSE (in licenses/ directory)
+More info: https://github.com/AOMediaCodec/libavif
+
+
+4. libaom (AV1 codec) — BSD-2-Clause
+--------------------------------------
+
+libaom is used as the AV1 codec backend for libavif, under the terms
+of the BSD 2-Clause License.
+
+Copyright (C) 2016 Alliance for Open Media
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the conditions of the
+BSD 2-Clause License are met.
+
+More info: https://aomedia.googlesource.com/aom/
+
+
+5. LibRaw Sub-dependencies
 --------------------------
 
 The following components are included as part of the LibRaw library:
