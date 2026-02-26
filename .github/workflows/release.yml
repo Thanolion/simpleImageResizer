@@ -17,6 +17,8 @@ env:
 jobs:
   build-windows:
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +27,7 @@ jobs:
         with:
           version: ${{ env.QT_VERSION }}
           arch: win64_msvc2022_64
+          cache: true
 
       - name: Set QTDIR
         shell: bash
@@ -34,6 +37,10 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+
+      - name: Ensure Ninja is available
+        shell: bash
+        run: ninja --version || choco install ninja -y
 
       - name: Configure
         run: cmake --preset x64-release
@@ -57,8 +64,21 @@ jobs:
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.name }}"
-          cd out/build/x64-release
-          7z a "../../../${APP_NAME}-${TAG}-windows-x64.zip" SimpleImageResizer/
+          mkdir -p staging
+          cp -r out/build/x64-release/SimpleImageResizer/*.exe staging/
+          cp -r out/build/x64-release/SimpleImageResizer/*.dll staging/ 2>/dev/null || true
+          cp -r out/build/x64-release/SimpleImageResizer/platforms staging/ 2>/dev/null || true
+          cp -r out/build/x64-release/SimpleImageResizer/styles staging/ 2>/dev/null || true
+          cp -r out/build/x64-release/SimpleImageResizer/imageformats staging/ 2>/dev/null || true
+          cp -r out/build/x64-release/SimpleImageResizer/tls staging/ 2>/dev/null || true
+          cp -r out/build/x64-release/SimpleImageResizer/translations staging/ 2>/dev/null || true
+          cp -r out/build/x64-release/SimpleImageResizer/licenses staging/ 2>/dev/null || true
+          # Verify licenses are included
+          if [ ! -d "staging/licenses" ] || [ -z "$(ls -A staging/licenses 2>/dev/null)" ]; then
+            echo "WARNING: No license files found in staging directory"
+          fi
+          cd staging
+          7z a "../${APP_NAME}-${TAG}-windows-x64.zip" .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -68,6 +88,8 @@ jobs:
 
   build-macos:
     runs-on: macos-13
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -76,6 +98,7 @@ jobs:
         with:
           version: ${{ env.QT_VERSION }}
           arch: clang_64
+          cache: true
 
       - name: Set QTDIR
         run: echo "QTDIR=$QT_ROOT_DIR" >> "$GITHUB_ENV"
@@ -88,6 +111,10 @@ jobs:
 
       - name: Build
         run: cmake --build out/build/macos-release
+
+      - name: Verify macOS deployment
+        run: |
+          test -d out/build/macos-release/SimpleImageResizer/SimpleImageResizer.app/Contents/Frameworks/QtCore.framework || (echo "ERROR: macdeployqt failed - Qt frameworks not found in .app bundle"; exit 1)
 
       - name: Determine tag
         id: tag
@@ -105,9 +132,13 @@ jobs:
           TAG="${{ steps.tag.outputs.name }}"
           mkdir -p staging/licenses
           cp -R out/build/macos-release/SimpleImageResizer/SimpleImageResizer.app staging/
-          cp -R out/build/macos-release/SimpleImageResizer/licenses/* staging/licenses/ 2>/dev/null || true
+          cp -R out/build/macos-release/SimpleImageResizer/SimpleImageResizer.app/Contents/Resources/licenses/* staging/licenses/ 2>/dev/null || true
+          # Verify licenses are included
+          if [ ! -d "staging/licenses" ] || [ -z "$(ls -A staging/licenses 2>/dev/null)" ]; then
+            echo "WARNING: No license files found in staging directory"
+          fi
           cd staging
-          zip -r "../../${APP_NAME}-${TAG}-macos-x64.zip" .
+          zip -r "../${APP_NAME}-${TAG}-macos-x64.zip" .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -117,6 +148,8 @@ jobs:
 
   build-linux:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -130,6 +163,7 @@ jobs:
         with:
           version: ${{ env.QT_VERSION }}
           arch: gcc_64
+          cache: true
 
       - name: Set QTDIR
         run: echo "QTDIR=$QT_ROOT_DIR" >> "$GITHUB_ENV"
@@ -155,7 +189,7 @@ jobs:
         run: |
           TAG="${{ steps.tag.outputs.name }}"
           STAGING="staging/${APP_NAME}"
-          mkdir -p "$STAGING/lib" "$STAGING/plugins/platforms" "$STAGING/licenses"
+          mkdir -p "$STAGING/lib" "$STAGING/plugins/platforms" "$STAGING/plugins/imageformats" "$STAGING/licenses"
 
           # Copy executable
           cp out/build/linux-release/SimpleImageResizer/SimpleImageResizer "$STAGING/"
@@ -178,22 +212,31 @@ jobs:
             [ -f "$wl" ] && cp -L "$wl" "$STAGING/plugins/platforms/"
           done
 
+          # Copy image format plugins (required for JPEG, WebP, etc.)
+          for plugin in "$QTDIR"/plugins/imageformats/libq*.so; do
+            [ -f "$plugin" ] && cp -L "$plugin" "$STAGING/plugins/imageformats/"
+          done
+
           # Copy license files
           cp -R out/build/linux-release/SimpleImageResizer/licenses/* "$STAGING/licenses/" 2>/dev/null || true
+          # Verify licenses are included
+          if [ ! -d "$STAGING/licenses" ] || [ -z "$(ls -A "$STAGING/licenses" 2>/dev/null)" ]; then
+            echo "WARNING: No license files found in staging directory"
+          fi
 
           # Create run script
           cat > "$STAGING/run.sh" << 'RUNEOF'
-          #!/usr/bin/env bash
-          SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-          export LD_LIBRARY_PATH="$SCRIPT_DIR/lib:$LD_LIBRARY_PATH"
-          export QT_PLUGIN_PATH="$SCRIPT_DIR/plugins"
-          exec "$SCRIPT_DIR/SimpleImageResizer" "$@"
-          RUNEOF
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export LD_LIBRARY_PATH="$SCRIPT_DIR/lib:$LD_LIBRARY_PATH"
+export QT_PLUGIN_PATH="$SCRIPT_DIR/plugins"
+exec "$SCRIPT_DIR/SimpleImageResizer" "$@"
+RUNEOF
           chmod +x "$STAGING/run.sh"
 
           # Create tarball
           cd staging
-          tar czf "../../${APP_NAME}-${TAG}-linux-x64.tar.gz" "${APP_NAME}/"
+          tar czf "../${APP_NAME}-${TAG}-linux-x64.tar.gz" "${APP_NAME}/"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

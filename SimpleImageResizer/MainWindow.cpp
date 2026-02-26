@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2024-2026 thanolion
+
 #include "MainWindow.h"
 #include "ImageProcessor.h"
 #include "SettingsManager.h"
@@ -23,13 +26,13 @@
 #include <QtConcurrent>
 #include <QDir>
 #include <QFileInfo>
+#include <QSet>
 #include <QDirIterator>
 #include <QImageReader>
 
 static const QStringList IMAGE_FILTERS = {
     "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.tiff", "*.tif", "*.webp",
-    "*.cr2", "*.cr3", "*.nef", "*.nrw", "*.arw", "*.dng", "*.raf", "*.orf", "*.rw2", "*.pef", "*.srw",
-    "*.svg", "*.svgz"
+    "*.cr2", "*.cr3", "*.nef", "*.nrw", "*.arw", "*.dng", "*.raf", "*.orf", "*.rw2", "*.pef", "*.srw"
 };
 
 static QString buildDialogFilter() {
@@ -56,7 +59,9 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+    // Safety net — closeEvent should have already handled this
     if (m_watcher && m_watcher->isRunning()) {
+        m_watcher->disconnect();
         m_watcher->cancel();
         m_watcher->waitForFinished();
     }
@@ -354,6 +359,7 @@ void MainWindow::onRemoveSelected()
             rows << r;
     }
     std::sort(rows.begin(), rows.end(), std::greater<int>());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
     for (int r : rows)
         m_inputTable->removeRow(r);
 }
@@ -383,13 +389,25 @@ void MainWindow::onProcess()
     m_usePerFileOutput = outputDir.isEmpty();
 
     if (!m_usePerFileOutput) {
-        QDir().mkpath(outputDir);
+        if (!QDir().mkpath(outputDir)) {
+            QMessageBox::warning(this, "Error", "Could not create output directory: " + outputDir);
+            return;
+        }
     }
 
-    // Build jobs
-    OutputFormat fmt = static_cast<OutputFormat>(m_fmtGroup->checkedId());
-    ResizeMode mode = static_cast<ResizeMode>(m_modeGroup->checkedId());
+    // Validate UI selections
+    int fmtId = m_fmtGroup->checkedId();
+    int modeId = m_modeGroup->checkedId();
+    if (fmtId < 0 || modeId < 0) {
+        QMessageBox::warning(this, "Error", "Please select an output format and resize mode.");
+        return;
+    }
+    OutputFormat fmt = static_cast<OutputFormat>(fmtId);
+    ResizeMode mode = static_cast<ResizeMode>(modeId);
+    QString ext = ImageProcessor::formatExtension(fmt);
 
+    // Build jobs with pre-computed output paths (avoids race conditions in concurrent processing)
+    QSet<QString> assignedPaths;
     QList<ProcessingJob> jobs;
     for (int r = 0; r < m_inputTable->rowCount(); ++r) {
         ProcessingJob job;
@@ -398,8 +416,25 @@ void MainWindow::onProcess()
             ? QFileInfo(job.inputPath).dir().filePath("resized")
             : outputDir;
         if (m_usePerFileOutput) {
-            QDir().mkpath(job.outputDir);
+            if (!QDir().mkpath(job.outputDir)) {
+                QMessageBox::warning(this, "Error", "Could not create output directory: " + job.outputDir);
+                return;
+            }
         }
+        job.outputPath = ImageProcessor::buildOutputPath(job.inputPath, job.outputDir, ext);
+        // Deduplicate against already-assigned paths in this batch (handles same-named files from different dirs)
+        if (assignedPaths.contains(job.outputPath)) {
+            QFileInfo outInfo(job.outputPath);
+            QString baseName = outInfo.completeBaseName();
+            int counter = 1;
+            QString candidate;
+            do {
+                candidate = QDir(job.outputDir).filePath(baseName + QString("_%1").arg(counter) + ext);
+                ++counter;
+            } while (assignedPaths.contains(candidate) || QFile::exists(candidate));
+            job.outputPath = candidate;
+        }
+        assignedPaths.insert(job.outputPath);
         job.format = fmt;
         job.resizeMode = mode;
         job.resizePercent = m_resizeSlider->value();
@@ -411,7 +446,16 @@ void MainWindow::onProcess()
         jobs << job;
     }
 
-    m_resultsTable->setRowCount(0);
+    // Pre-populate results table with placeholders matching input order
+    m_resultsTable->setRowCount(jobs.size());
+    for (int r = 0; r < jobs.size(); ++r) {
+        QFileInfo info(jobs[r].inputPath);
+        m_resultsTable->setItem(r, 0, new QTableWidgetItem(info.fileName()));
+        m_resultsTable->setItem(r, 1, new QTableWidgetItem("..."));
+        m_resultsTable->setItem(r, 2, new QTableWidgetItem("..."));
+        m_resultsTable->setItem(r, 3, new QTableWidgetItem("..."));
+        m_resultsTable->setItem(r, 4, new QTableWidgetItem("Processing..."));
+    }
     m_progressBar->setMaximum(jobs.size());
     m_progressBar->setValue(0);
     m_cancelled = false;
@@ -424,11 +468,8 @@ void MainWindow::onProcess()
         ProcessingResult result = m_watcher->resultAt(index);
         m_progressBar->setValue(m_progressBar->value() + 1);
 
-        int row = m_resultsTable->rowCount();
-        m_resultsTable->insertRow(row);
-
-        QFileInfo info(result.inputPath);
-        m_resultsTable->setItem(row, 0, new QTableWidgetItem(info.fileName()));
+        // Update the pre-populated row in-place (preserves input order)
+        int row = index;
 
         auto formatSize = [](qint64 sz) -> QString {
             if (sz >= 1024 * 1024)
@@ -449,7 +490,10 @@ void MainWindow::onProcess()
             else if (pct < 0)
                 pctItem->setForeground(QColor(200, 0, 0));
             m_resultsTable->setItem(row, 3, pctItem);
-            m_resultsTable->setItem(row, 4, new QTableWidgetItem("OK"));
+            QString statusText = "OK";
+            if (!result.errorMessage.isEmpty())
+                statusText += " (" + result.errorMessage + ")";
+            m_resultsTable->setItem(row, 4, new QTableWidgetItem(statusText));
         } else {
             m_resultsTable->setItem(row, 3, new QTableWidgetItem("-"));
             auto *statusItem = new QTableWidgetItem(result.errorMessage);
@@ -547,7 +591,7 @@ void MainWindow::onAbout()
 
         "<hr><h4>Support Development</h4>"
         "<p><a href=\"https://github.com/sponsors/thanolion\">GitHub Sponsors</a>"
-        " | <a href=\"https://ko-fi.com/YOUR_KOFI_USERNAME\">Ko-fi</a></p>"
+        " | <a href=\"https://ko-fi.com/cullen38127\">Ko-fi</a></p>"
 
         "<hr><p>Full license texts are included in the <b>licenses/</b> folder "
         "distributed with this application.</p>");
@@ -562,7 +606,7 @@ void MainWindow::onDonate()
         "<p>If you find Simple Image Resizer useful, consider supporting its development:</p>"
         "<ul>"
         "<li><a href=\"https://github.com/sponsors/thanolion\">GitHub Sponsors</a></li>"
-        "<li><a href=\"https://ko-fi.com/YOUR_KOFI_USERNAME\">Ko-fi</a></li>"
+        "<li><a href=\"https://ko-fi.com/cullen38127\">Ko-fi</a></li>"
         "</ul>"
         "<p>Thank you for your support!</p>"
     );
@@ -607,6 +651,7 @@ void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 
 void MainWindow::dropEvent(QDropEvent *event)
 {
+    static const QStringList BARE_EXTENSIONS = bareExtensions();
     QStringList paths;
     for (const QUrl &url : event->mimeData()->urls()) {
         QString path = url.toLocalFile();
@@ -617,7 +662,7 @@ void MainWindow::dropEvent(QDropEvent *event)
                 paths << it.next();
         } else if (info.isFile()) {
             QString ext = info.suffix().toLower();
-            if (bareExtensions().contains(ext))
+            if (BARE_EXTENSIONS.contains(ext))
                 paths << path;
         }
     }
@@ -626,6 +671,12 @@ void MainWindow::dropEvent(QDropEvent *event)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    if (m_watcher && m_watcher->isRunning()) {
+        m_watcher->disconnect();
+        m_watcher->cancel();
+        m_statusLabel->setText("Cancelling...");
+        m_watcher->waitForFinished();
+    }
     saveSettings();
     event->accept();
 }

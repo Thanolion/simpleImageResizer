@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2024-2026 thanolion
+
 #include "ImageProcessor.h"
 #include <QImage>
 #include <QFileInfo>
@@ -9,7 +12,11 @@
 static QImage loadRawImage(const QString &path)
 {
     LibRaw raw;
+#ifdef _WIN32
+    if (raw.open_file(path.toStdWString().c_str()) != LIBRAW_SUCCESS) return {};
+#else
     if (raw.open_file(path.toUtf8().constData()) != LIBRAW_SUCCESS) return {};
+#endif
     if (raw.unpack() != LIBRAW_SUCCESS) return {};
     raw.imgdata.params.output_bps = 8;
     raw.imgdata.params.use_auto_wb = 1;
@@ -91,15 +98,22 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
     case ResizeMode::NoResize:
         resized = img;
         break;
+    default:
+        result.status = ResultStatus::FailedToSave;
+        result.errorMessage = "Unknown resize mode";
+        return result;
     }
 
     result.newWidth = resized.width();
     result.newHeight = resized.height();
 
-    QString ext = formatExtension(job.format);
     QByteArray fmtName = formatName(job.format);
-    QString outputPath = buildOutputPath(job.inputPath, job.outputDir, ext);
+    QString outputPath = job.outputPath;
     result.outputPath = outputPath;
+
+    if (job.useTargetSize && job.format == OutputFormat::PNG) {
+        result.errorMessage = "Target size not supported for PNG format";
+    }
 
     if (job.useTargetSize && job.format != OutputFormat::PNG) {
         // Binary search for quality to hit target file size
@@ -137,7 +151,11 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
             buffer.open(QIODevice::WriteOnly);
             QImageWriter writer(&buffer, fmtName);
             writer.setQuality(1);
-            writer.write(resized);
+            if (!writer.write(resized)) {
+                result.status = ResultStatus::FailedToSave;
+                result.errorMessage = "Failed to encode image at minimum quality";
+                return result;
+            }
             buffer.close();
         }
 
@@ -164,6 +182,7 @@ ProcessingResult ImageProcessor::process(const ProcessingJob &job)
         result.newSize = outInfo.size();
     }
 
+    result.status = ResultStatus::Success;
     return result;
 }
 
@@ -205,6 +224,7 @@ QString ImageProcessor::buildOutputPath(const QString &inputPath, const QString 
         do {
             candidate = QDir(outputDir).filePath(baseName + QString("_%1").arg(counter) + ext);
             ++counter;
+            if (counter > 10000) return outPath; // Safety limit
         } while (QFile::exists(candidate));
         outPath = candidate;
     }

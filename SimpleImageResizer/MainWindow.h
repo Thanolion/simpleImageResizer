@@ -1,4 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2024-2026 thanolion
+
 #pragma once
+
+#include <atomic>
 
 #include <QMainWindow>
 #include <QTableWidget>
@@ -97,6 +102,6 @@ private:
 
     // Processing state
     QFutureWatcher<ProcessingResult> *m_watcher = nullptr;
-    bool m_cancelled = false;
+    std::atomic<bool> m_cancelled{false};
     bool m_usePerFileOutput = false;
 };

@@ -105,4 +105,4 @@ Qt is used under the LGPL v3 license. LibRaw is used under the LGPL v2.1 license
 If you find Simple Image Resizer useful, consider supporting its development:
 
 - [GitHub Sponsors](https://github.com/sponsors/thanolion)
-- [Ko-fi](https://ko-fi.com/YOUR_KOFI_USERNAME)
+- [Ko-fi](https://ko-fi.com/cullen38127)

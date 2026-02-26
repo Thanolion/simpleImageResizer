@@ -1,0 +1,58 @@
+Third-Party Licenses
+====================
+
+Simple Image Resizer uses the following third-party libraries:
+
+
+1. Qt 6 — LGPL-3.0
+-------------------
+
+Qt is used under the GNU Lesser General Public License version 3.0 (dynamic linking).
+
+The Qt Toolkit is Copyright (C) The Qt Company Ltd. and other contributors.
+
+The Qt 6 source code used to build this application is available from
+https://code.qt.io. A copy of the Qt source code (version 6.8.0) can be
+obtained upon written request within three years of the distribution date.
+
+Full license text: LGPL-3.0.txt (in licenses/ directory)
+More info: https://www.qt.io/licensing
+
+
+2. LibRaw 0.21.3 — LGPL-2.1
+----------------------------
+
+LibRaw is used in this project under the terms of the GNU Lesser General
+Public License version 2.1. (LibRaw is dual-licensed under LGPL-2.1 and
+CDDL-1.0; this project uses the LGPL-2.1 option.)
+
+Copyright (C) 2008-2024 LibRaw LLC (info@libraw.org)
+
+Full license text: LGPL-2.1.txt / LibRaw-LICENSE.LGPL (in licenses/ directory)
+More info: https://www.libraw.org
+
+
+3. LibRaw Sub-dependencies
+--------------------------
+
+The following components are included as part of the LibRaw library:
+
+a) dcraw by Dave Coffin — Public Domain
+
+b) DCB and FBDD demosaic by Jacek Gozdz — BSD 3-Clause License
+   Copyright holders as listed in the LibRaw source code.
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the conditions of the
+   BSD 3-Clause License are met. Full notices are available in the
+   LibRaw source distribution.
+
+c) X3F decoder by Roland Karlsson — BSD License
+   Copyright holders as listed in the LibRaw source code.
+   Full notices are available in the LibRaw source distribution.
+
+d) Adobe DNG SDK — MIT License
+   Copyright holders as listed in the LibRaw source code.
+   Permission is hereby granted, free of charge, to any person obtaining
+   a copy of this software and associated documentation files, to deal in
+   the Software without restriction. Full notices are available in the
+   LibRaw source distribution.

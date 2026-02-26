@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/build.env" ]; then
+    set -a
+    source "$SCRIPT_DIR/build.env"
+    set +a
+fi
+
 BUILD_TYPE="${1:-debug}"
 
 # Auto-detect QTDIR if not set

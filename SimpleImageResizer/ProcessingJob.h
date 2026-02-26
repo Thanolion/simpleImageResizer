@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2024-2026 thanolion
+
 #pragma once
 
 #include <QString>
@@ -19,6 +22,7 @@ enum class OutputFormat {
 struct ProcessingJob {
     QString inputPath;
     QString outputDir;
+    QString outputPath;  // Pre-computed by main thread to avoid race conditions
     OutputFormat format = OutputFormat::JPEG;
     ResizeMode resizeMode = ResizeMode::Percentage;
     int resizePercent = 100;

@@ -21,6 +21,16 @@ list(FILTER LIBRAW_SOURCES EXCLUDE REGEX "_ph\\.cpp$")
 add_library(raw STATIC ${LIBRAW_SOURCES})
 target_include_directories(raw PUBLIC "${libraw_SOURCE_DIR}")
 target_compile_definitions(raw PUBLIC LIBRAW_NODLL)
+if(WIN32)
+    target_compile_definitions(raw PUBLIC LIBRAW_WIN32_CALLS)
+endif()
+if(NOT WIN32)
+    find_package(Threads REQUIRED)
+    target_link_libraries(raw PRIVATE Threads::Threads)
+endif()
+if(UNIX AND NOT APPLE)
+    target_link_libraries(raw PRIVATE m)
+endif()
 if(MSVC)
     target_compile_options(raw PRIVATE /W0)
 else()
@@ -49,6 +59,10 @@ target_link_libraries(SimpleImageResizer PRIVATE
 set_target_properties(SimpleImageResizer PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
+    MACOSX_BUNDLE_GUI_IDENTIFIER "com.simpleimageresizer.app"
+    MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_BUNDLE_NAME "Simple Image Resizer"
 )
 
 # Platform-specific deployment
@@ -81,14 +95,27 @@ elseif(UNIX)
 endif()
 
 # Copy license files to output directory
-set(LICENSE_DIR "$<TARGET_FILE_DIR:SimpleImageResizer>/licenses")
+if(APPLE)
+    set(LICENSE_DIR "$<TARGET_BUNDLE_DIR:SimpleImageResizer>/Contents/Resources/licenses")
+else()
+    set(LICENSE_DIR "$<TARGET_FILE_DIR:SimpleImageResizer>/licenses")
+endif()
 add_custom_command(TARGET SimpleImageResizer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${LICENSE_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${libraw_SOURCE_DIR}/LICENSE.LGPL" "${LICENSE_DIR}/LibRaw-LICENSE.LGPL"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${libraw_SOURCE_DIR}/LICENSE.CDDL" "${LICENSE_DIR}/LibRaw-LICENSE.CDDL"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${libraw_SOURCE_DIR}/COPYRIGHT" "${LICENSE_DIR}/LibRaw-COPYRIGHT"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/licenses/LGPL-3.0.txt" "${LICENSE_DIR}/LGPL-3.0.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/licenses/LGPL-2.1.txt" "${LICENSE_DIR}/LGPL-2.1.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/licenses/GPL-3.0.txt" "${LICENSE_DIR}/GPL-3.0.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/LICENSE" "${LICENSE_DIR}/LICENSE"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/THIRD-PARTY-LICENSES.txt" "${LICENSE_DIR}/THIRD-PARTY-LICENSES.txt"
     COMMENT "Copying license files..."
+)
+
+# Install targets
+include(GNUInstallDirs)
+install(TARGETS SimpleImageResizer
+    BUNDLE DESTINATION .
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

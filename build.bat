@@ -105,17 +105,17 @@ set "PRESET=x64-%BUILD_TYPE%"
 REM --- Build ---
 cd /d "%~dp0"
 if exist "out\build\%PRESET%" rmdir /s /q "out\build\%PRESET%"
-echo === CONFIGURING (%PRESET%) === > build.log 2>&1
-cmake --preset %PRESET% >> build.log 2>&1
+echo === CONFIGURING (%PRESET%) ===
+cmake --preset %PRESET%
 if %ERRORLEVEL% NEQ 0 (
-    echo === CONFIGURE FAILED === >> build.log 2>&1
+    echo === CONFIGURE FAILED ===
     exit /b 1
 )
-echo === BUILDING === >> build.log 2>&1
-cmake --build "out/build/%PRESET%" >> build.log 2>&1
+echo === BUILDING ===
+cmake --build "out/build/%PRESET%"
 if %ERRORLEVEL% NEQ 0 (
-    echo === BUILD FAILED === >> build.log 2>&1
+    echo === BUILD FAILED ===
     exit /b 1
 )
-echo === BUILD SUCCEEDED === >> build.log 2>&1
+echo === BUILD SUCCEEDED ===
 exit /b 0
