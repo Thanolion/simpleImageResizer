@@ -894,9 +894,28 @@ void MainWindow::onCopyResults()
 
 void MainWindow::onOpenOutputFolder()
 {
-    QString dir = m_outputDirEdit->text();
-    if (!dir.isEmpty())
-        QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+    QString dir = (m_tabWidget->currentIndex() == 0)
+                      ? m_simpleOutputDirEdit->text()
+                      : m_outputDirEdit->text();
+
+    if (dir.isEmpty()) {
+        // No explicit output dir — open the folder of the first input file
+        if (m_inputTable->rowCount() > 0) {
+            QString firstInput = m_inputTable->item(0, 0)->data(Qt::UserRole).toString();
+            dir = QFileInfo(firstInput).absolutePath();
+        } else {
+            m_statusLabel->setText("No output folder set and no input files added.");
+            return;
+        }
+    }
+
+    QDir d(dir);
+    if (!d.exists()) {
+        m_statusLabel->setText("Output folder does not exist: " + QDir::toNativeSeparators(dir));
+        return;
+    }
+
+    QDesktopServices::openUrl(QUrl::fromLocalFile(d.absolutePath()));
 }
 
 void MainWindow::onAbout()
