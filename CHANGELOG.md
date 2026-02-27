@@ -5,6 +5,13 @@ All notable changes to Simple Image Resizer are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-02-27
+
+### Fixed
+- Open Output Folder button now works correctly when using the Simple settings tab
+- Open Output Folder opens the first input file's folder when no explicit output directory is set
+- Open Output Folder shows a status message when the folder doesn't exist or no input files are added
+
 ## [1.0.2] - 2026-02-26
 
 ### Added
@@ -39,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Persistent settings between sessions
 - Cross-platform CI/CD for Windows, macOS, and Linux
 
+[1.0.3]: https://github.com/Thanolion/simpleImageResizer/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/Thanolion/simpleImageResizer/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/Thanolion/simpleImageResizer/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Thanolion/simpleImageResizer/releases/tag/v1.0.0
