@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.0.3] - 2026-02-27
 
+### Added
+- Simple/Advanced settings tabs — Simple mode offers casual-friendly dropdowns for format, resize presets, and quality; Advanced mode exposes all controls
+- Configurable CPU thread pool — set the number of processing threads (defaults to cores minus one)
+- Thread count and last active tab persist across sessions
+
 ### Fixed
 - Open Output Folder button now works correctly when using the Simple settings tab
 - Open Output Folder opens the first input file's folder when no explicit output directory is set
