@@ -8,9 +8,11 @@ A fast, easy-to-use desktop application for batch image resizing and compression
 
 - **Batch processing** — resize and compress hundreds of images at once
 - **Multiple resize modes** — percentage, fit width, fit height, fit box, or convert-only
-- **Format conversion** — output to JPG, PNG, or WebP
+- **Format conversion** — output to JPEG, PNG, WebP, or AVIF
 - **RAW camera support** — load CR2, CR3, NEF, ARW, DNG, RAF, ORF, and more via LibRaw
-- **Target file size** — automatically adjust quality to hit a specific file size
+- **Target file size** — automatically adjust quality to hit a specific file size (JPEG, WebP, AVIF)
+- **Simple & Advanced modes** — Simple mode for quick presets, Advanced mode for full control
+- **Configurable thread pool** — set the number of processing threads to balance speed and system load
 - **Drag & drop** — drag files or folders directly into the app
 - **Cross-platform** — builds on Windows, macOS, and Linux
 
@@ -25,7 +27,9 @@ A fast, easy-to-use desktop application for batch image resizing and compression
 | Ninja | (recommended generator) |
 | C++ compiler | C++20 support required |
 
-LibRaw 0.21.3 is fetched automatically by CMake — no manual installation needed.
+LibRaw and libavif (with libaom) are fetched automatically by CMake — no manual installation needed.
+
+Optionally install **NASM** or **YASM** for libaom SIMD optimizations (faster AVIF encoding). Without them, libaom falls back to generic C.
 
 ### Windows
 
@@ -93,12 +97,14 @@ Available settings:
 |---------|---------|---------|
 | [Qt](https://www.qt.io/) | 6.x | LGPL v3 |
 | [LibRaw](https://www.libraw.org/) | 0.21.3 (fetched automatically) | LGPL v2.1 / CDDL v1.0 |
+| [libavif](https://github.com/AOMediaCodec/libavif) | 1.1.1 (fetched automatically) | BSD 2-Clause |
+| [libaom](https://aomedia.googlesource.com/aom/) | bundled with libavif | BSD 2-Clause |
 
 ## License
 
 This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
 
-Qt is used under the LGPL v3 license. LibRaw is used under the LGPL v2.1 license. Full license texts are included in the `licenses/` directory.
+Qt is used under the LGPL v3 license. LibRaw is used under the LGPL v2.1 license. libavif and libaom are used under BSD 2-Clause licenses. Full license texts are included in the `licenses/` directory.
 
 ## Support Development
 
