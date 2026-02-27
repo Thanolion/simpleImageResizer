@@ -3,6 +3,7 @@
 
 #include "SettingsManager.h"
 #include <QSettings>
+#include <QThread>
 
 SettingsManager &SettingsManager::instance()
 {
@@ -116,4 +117,28 @@ void SettingsManager::setTargetSizeKB(qint64 kb)
 {
     QSettings s;
     s.setValue("targetSizeKB", kb);
+}
+
+int SettingsManager::threadCount() const
+{
+    QSettings s;
+    return s.value("threadCount", qMax(1, QThread::idealThreadCount() - 1)).toInt();
+}
+
+void SettingsManager::setThreadCount(int count)
+{
+    QSettings s;
+    s.setValue("threadCount", count);
+}
+
+int SettingsManager::lastActiveTab() const
+{
+    QSettings s;
+    return s.value("lastActiveTab", 0).toInt();
+}
+
+void SettingsManager::setLastActiveTab(int index)
+{
+    QSettings s;
+    s.setValue("lastActiveTab", index);
 }

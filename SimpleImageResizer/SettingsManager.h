@@ -37,6 +37,11 @@ public:
     qint64 targetSizeKB() const;
     void setTargetSizeKB(qint64 kb);
 
+    int threadCount() const;
+    void setThreadCount(int count);
+    int lastActiveTab() const;
+    void setLastActiveTab(int index);
+
 private:
     SettingsManager() = default;
 };

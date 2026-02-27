@@ -19,6 +19,10 @@
 #include <QSplitter>
 #include <QButtonGroup>
 #include <QPointer>
+#include <QTabWidget>
+#include <QComboBox>
+#include <QThreadPool>
+#include <QThread>
 
 #include "ProcessingJob.h"
 #include "ProcessingResult.h"
@@ -58,10 +62,27 @@ private slots:
 private:
     void setupMenuBar();
     void setupUI();
+    void setupSimpleTab(QTabWidget *tabWidget);
+    void setupAdvancedTab(QTabWidget *tabWidget);
+    void syncSimpleToAdvanced();
+    void syncAdvancedToSimple();
     void addImageFiles(const QStringList &paths);
     void loadSettings();
     void saveSettings();
     void updateResizeControls();
+
+    // Tab widget
+    QTabWidget *m_tabWidget = nullptr;
+
+    // Simple tab widgets
+    QComboBox   *m_simpleFormatCombo = nullptr;
+    QComboBox   *m_simpleResizeCombo = nullptr;
+    QSlider     *m_simpleResizeSlider = nullptr;
+    QLabel      *m_simpleResizeLabel = nullptr;
+    QComboBox   *m_simpleQualityCombo = nullptr;
+    QLabel      *m_simpleQualityDesc = nullptr;
+    QLineEdit   *m_simpleOutputDirEdit = nullptr;
+    QPushButton *m_simpleBrowseOutputBtn = nullptr;
 
     // Input panel
     QTableWidget *m_inputTable = nullptr;
@@ -96,6 +117,12 @@ private:
     QLabel *m_pngInfoLabel = nullptr;
     QCheckBox *m_targetSizeCheck = nullptr;
     QSpinBox *m_targetSizeSpin = nullptr;
+
+    // Advanced tab - Performance
+    QSpinBox    *m_threadCountSpin = nullptr;
+
+    // Dedicated thread pool
+    QThreadPool *m_threadPool = nullptr;
 
     // Process controls
     QPushButton *m_processBtn = nullptr;
