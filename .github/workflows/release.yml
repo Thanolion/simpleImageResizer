@@ -93,8 +93,8 @@ jobs:
           name: windows-x64
           path: ${{ env.APP_NAME }}-*-windows-x64.zip
 
-  build-macos:
-    runs-on: macos-14
+  build-macos-x64:
+    runs-on: macos-15-intel
     permissions:
       contents: read
     steps:
@@ -115,14 +115,14 @@ jobs:
         run: brew install ninja nasm
 
       - name: Configure
-        run: cmake --preset macos-release
+        run: cmake --preset macos-x64-release
 
       - name: Build
-        run: cmake --build out/build/macos-release
+        run: cmake --build out/build/macos-x64-release
 
       - name: Verify macOS deployment
         run: |
-          test -d out/build/macos-release/SimpleImageResizer/SimpleImageResizer.app/Contents/Frameworks/QtCore.framework || (echo "ERROR: macdeployqt failed - Qt frameworks not found in .app bundle"; exit 1)
+          test -d out/build/macos-x64-release/SimpleImageResizer/SimpleImageResizer.app/Contents/Frameworks/QtCore.framework || (echo "ERROR: macdeployqt failed - Qt frameworks not found in .app bundle"; exit 1)
 
       - name: Determine tag
         id: tag
@@ -139,8 +139,8 @@ jobs:
         run: |
           TAG="${{ steps.tag.outputs.name }}"
           mkdir -p staging/licenses
-          cp -R out/build/macos-release/SimpleImageResizer/SimpleImageResizer.app staging/
-          cp -R out/build/macos-release/SimpleImageResizer/SimpleImageResizer.app/Contents/Resources/licenses/* staging/licenses/ 2>/dev/null || true
+          cp -R out/build/macos-x64-release/SimpleImageResizer/SimpleImageResizer.app staging/
+          cp -R out/build/macos-x64-release/SimpleImageResizer/SimpleImageResizer.app/Contents/Resources/licenses/* staging/licenses/ 2>/dev/null || true
           # Verify licenses are included
           if [ ! -d "staging/licenses" ] || [ -z "$(ls -A staging/licenses 2>/dev/null)" ]; then
             echo "WARNING: No license files found in staging directory"
@@ -153,6 +153,67 @@ jobs:
         with:
           name: macos-x64
           path: ${{ env.APP_NAME }}-*-macos-x64.zip
+
+  build-macos-arm64:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: clang_64
+          modules: 'qtimageformats'
+          cache: true
+
+      - name: Set QTDIR
+        run: echo "QTDIR=$QT_ROOT_DIR" >> "$GITHUB_ENV"
+
+      - name: Install Ninja and NASM
+        run: brew install ninja nasm
+
+      - name: Configure
+        run: cmake --preset macos-arm64-release
+
+      - name: Build
+        run: cmake --build out/build/macos-arm64-release
+
+      - name: Verify macOS deployment
+        run: |
+          test -d out/build/macos-arm64-release/SimpleImageResizer/SimpleImageResizer.app/Contents/Frameworks/QtCore.framework || (echo "ERROR: macdeployqt failed - Qt frameworks not found in .app bundle"; exit 1)
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=draft" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          mkdir -p staging/licenses
+          cp -R out/build/macos-arm64-release/SimpleImageResizer/SimpleImageResizer.app staging/
+          cp -R out/build/macos-arm64-release/SimpleImageResizer/SimpleImageResizer.app/Contents/Resources/licenses/* staging/licenses/ 2>/dev/null || true
+          # Verify licenses are included
+          if [ ! -d "staging/licenses" ] || [ -z "$(ls -A staging/licenses 2>/dev/null)" ]; then
+            echo "WARNING: No license files found in staging directory"
+          fi
+          cd staging
+          zip -r "../${APP_NAME}-${TAG}-macos-arm64.zip" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: ${{ env.APP_NAME }}-*-macos-arm64.zip
 
   build-linux:
     runs-on: ubuntu-22.04
@@ -254,7 +315,7 @@ jobs:
           path: ${{ env.APP_NAME }}-*-linux-x64.tar.gz
 
   release:
-    needs: [build-windows, build-macos, build-linux]
+    needs: [build-windows, build-macos-x64, build-macos-arm64, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
