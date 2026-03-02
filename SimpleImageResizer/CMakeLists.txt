@@ -58,13 +58,13 @@ if(NOT NASM_EXE AND NOT YASM_EXE)
     set(AOM_TARGET_CPU "generic" CACHE STRING "" FORCE)
     message(STATUS "NASM/YASM not found — building libaom without SIMD optimizations")
 endif()
-# Pre-declare libaom via GitHub mirror; libavif's CMake also declares it using
-# aomedia.googlesource.com (an unreliable archive endpoint), but CMake ignores
-# any declaration after the first one for a given name.
+# Pre-declare libaom via the official AOM GCS releases bucket; libavif's CMake
+# also declares it using aomedia.googlesource.com (an unreliable archive
+# endpoint that returns HTTP 500), but CMake ignores any declaration after the
+# first one for a given name.  URL-based downloads use libcurl, not git, so
+# they work in non-interactive CI environments.
 FetchContent_Declare(libaom
-    GIT_REPOSITORY https://github.com/AOMediaCodec/libaom.git
-    GIT_TAG        v3.9.1
-    GIT_SHALLOW    TRUE
+    URL https://storage.googleapis.com/aom-releases/libaom-3.9.1.tar.gz
 )
 FetchContent_Declare(libavif
     GIT_REPOSITORY https://github.com/AOMediaCodec/libavif.git
