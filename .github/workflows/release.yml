@@ -111,8 +111,11 @@ jobs:
       - name: Set QTDIR
         run: echo "QTDIR=$QT_ROOT_DIR" >> "$GITHUB_ENV"
 
-      - name: Install Ninja and NASM
-        run: brew install ninja nasm
+      - name: Install Ninja
+        run: brew install ninja
+        # NASM intentionally omitted: brew's NASM fails libaom's multipass
+        # optimization check on Intel runners, causing Configure to abort.
+        # CMakeLists.txt falls back to AOM_TARGET_CPU=generic when NASM is absent.
 
       - name: Configure
         run: cmake --preset macos-x64-release
