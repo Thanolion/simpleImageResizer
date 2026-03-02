@@ -6,6 +6,7 @@
 #include "ImageProcessor.h"
 #include "SettingsManager.h"
 
+//All the QT framework includes
 #include <QApplication>
 #include <QMenuBar>
 #include <QMenu>
