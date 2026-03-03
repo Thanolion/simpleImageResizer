@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 thanolion
 
 #include "ImageProcessor.h"
+#include <memory>
 #include <QImage>
 #include <QFile>
 #include <QFileInfo>
@@ -18,7 +19,8 @@ static bool isCancelled(const ProcessingJob &job)
 
 static QImage loadRawImage(const QString &path)
 {
-    LibRaw raw;
+    auto rawOwner = std::make_unique<LibRaw>();
+    LibRaw &raw = *rawOwner;
 #ifdef _WIN32
     if (raw.open_file(path.toStdWString().c_str()) != LIBRAW_SUCCESS) return {};
 #else
